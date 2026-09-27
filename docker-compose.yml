@@ -1,0 +1,22 @@
+services:
+  db:
+    image: camilagea/tp1-db:1.0.0
+    container_name: tp1-db
+    env_file:
+      - ./aplicaciones-contenedores/db/.env
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - fintech-network
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+          
+volumes:
+  db_data:
+
+networks:
+  fintech-network:
