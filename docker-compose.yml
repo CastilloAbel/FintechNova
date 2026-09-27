@@ -14,7 +14,22 @@ services:
         limits:
           cpus: "0.50"
           memory: 512M
-          
+  api-clientes:
+    image: camilagea/tp1-api-clientes:1.0.0
+    container_name: tp1-api-clientes
+    env_file:
+      - ./aplicaciones-contenedores/api-clientes/.env
+    networks:
+      - fintech-network
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+
+
 volumes:
   db_data:
 
