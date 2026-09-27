@@ -1,0 +1,36 @@
+services:
+  traefik:
+    image: traefik:v3.7
+    container_name: traefik
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./certs:/certs:ro
+      - ./dynamic:/dynamic:ro
+      - ./traefik.yml:/traefik.yml
+    labels:
+      # Enable self‑routing
+      - "traefik.enable=true"
+
+      # Dashboard router
+      - "traefik.http.routers.dashboard.rule=Host(`dashboard.${DOMAIN}`)"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.tls=true"
+
+      # Basic‑auth middleware
+      # - "traefik.http.middlewares.dashboard-auth.basicauth.users=admin:$$apr1$$BMTsAaTX$$ZLRspVbW4qPMSwADntGs/1"
+      # - "traefik.http.routers.dashboard.middlewares=dashboard-auth@docker"
+    environment:
+      - DOMAIN=${DOMAIN}
+
+networks:
+  proxy:
+    name: proxy

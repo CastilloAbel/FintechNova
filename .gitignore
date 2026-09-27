@@ -9,3 +9,4 @@ db/data/
 .env
 .env.*
 !env.example
+traefik/certs/*
