@@ -1,0 +1,14 @@
+# Dependencias y artefactos locales
+node_modules/
+dist/
+
+# Control de versiones y archivos del editor
+.gitignore
+
+# No se usa NGINX en esta imagen; Traefik enruta las APIs y sirve como ingress
+nginx/
+
+# Archivos que no necesita el build
+*.log
+npm-debug.log*
+README.md
