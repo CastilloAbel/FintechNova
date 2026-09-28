@@ -1,0 +1,8 @@
+# Control de versiones y archivos del editor
+.gitignore
+
+
+# Archivos que no necesita el build
+*.log
+README.md
+
