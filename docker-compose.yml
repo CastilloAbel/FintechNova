@@ -1,13 +1,49 @@
 services:
+  traefik:
+    image: traefik:v3.7
+    container_name: traefik
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - proxy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8443:8443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./traefik/certs:/certs:ro
+      - ./traefik/dynamic:/dynamic:ro
+      - ./traefik/traefik.yml:/traefik.yml
+    labels:
+      # Enable self‑routing
+      - "traefik.enable=true"
+
+      # Dashboard router
+      - "traefik.http.routers.dashboard.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.dashboard.entrypoints=dashboard"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.tls=true"
+
+      # Basic‑auth middleware
+      # - "traefik.http.middlewares.dashboard-auth.basicauth.users=admin:$$apr1$$BMTsAaTX$$ZLRspVbW4qPMSwADntGs/1"
+      # - "traefik.http.routers.dashboard.middlewares=dashboard-auth@docker"
+    environment:
+      - DOMAIN=${DOMAIN}
+
   db:
     image: camilagea/tp1-db:1.0.0
     container_name: tp1-db
-    env_file:
-      - ./aplicaciones-contenedores/db/.env
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
     volumes:
       - db_data:/var/lib/mysql
     networks:
-      - fintech-network
+      - proxy
     restart: always
     deploy:
       resources:
@@ -17,21 +53,83 @@ services:
   api-clientes:
     image: camilagea/tp1-api-clientes:1.0.0
     container_name: tp1-api-clientes
-    env_file:
-      - ./aplicaciones-contenedores/api-clientes/.env
+    ports:
+      - "8081:8081"
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME_CLIENTES}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - PORT=8081
     networks:
-      - fintech-network
+      - proxy
     restart: always
     deploy:
       resources:
         limits:
           cpus: "0.25"
           memory: 256M
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.clientes.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/clientes`)"
+      - "traefik.http.routers.clientes.entrypoints=websecure"
+      - "traefik.http.routers.clientes.tls=true"
+      - "traefik.http.services.clientes.loadbalancer.server.port=8081"
+      # Remove only /api
+      - "traefik.http.middlewares.clientes-strip.stripprefix.prefixes=/api"
 
+      # Attach middleware
+      - "traefik.http.routers.clientes.middlewares=clientes-strip"
+    depends_on:
+      - db
+  
+  web:
+    image: castilloabel/tp1-web:1.0.0
+    container_name: tp1-web
+    restart: always
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tp1-web.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.tp1-web.entrypoints=websecure"
+      - "traefik.http.routers.tp1-web.tls=true"
+
+  api-transacciones:
+    image: castilloabel/tp1-api-transacciones:2.0.0
+    container_name: tp1-api-transacciones
+    ports:
+      - "8084:8084"
+    networks:
+      - proxy
+    restart: always
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME_TRANSACCIONES}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - IPAPI_TOKEN=${IPAPI_TOKEN}
+      - PORT=8084
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.transacciones.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/transacciones`)"
+      - "traefik.http.routers.transacciones.entrypoints=websecure"
+      - "traefik.http.routers.transacciones.tls=true"
+      - "traefik.http.services.transacciones.loadbalancer.server.port=8084"
+      # Remove only /api
+      - "traefik.http.middlewares.transacciones-strip.stripprefix.prefixes=/api"
+
+      # Attach middleware
+      - "traefik.http.routers.transacciones.middlewares=transacciones-strip"
+    depends_on:
+      - db
 
 
 volumes:
   db_data:
 
 networks:
-  fintech-network:
+  proxy:
+    name: proxy

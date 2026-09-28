@@ -1,0 +1,32 @@
+## traefik.yml
+api:
+  insecure: false
+  dashboard: true
+entrypoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entrypoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    address: ":443"
+    http:
+      tls: true
+  dashboard:
+    address: ":8443"
+    http:
+      tls: true
+providers:
+  docker:
+    exposedByDefault: false
+    network: proxy
+  file:
+    filename: /dynamic/tls.yaml
+log:
+  level: INFO
+accessLog: true
+methrics:
+  prometheus: true
