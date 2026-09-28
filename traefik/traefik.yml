@@ -15,6 +15,10 @@ entrypoints:
     address: ":443"
     http:
       tls: true
+  dashboard:
+    address: ":8443"
+    http:
+      tls: true
 providers:
   docker:
     exposedByDefault: false
