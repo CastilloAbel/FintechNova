@@ -19,22 +19,19 @@ services:
     labels:
       # Enable self‑routing
       - "traefik.enable=true"
-
       # Dashboard router
       - "traefik.http.routers.dashboard.rule=Host(`${DOMAIN}`)"
       - "traefik.http.routers.dashboard.entrypoints=dashboard"
       - "traefik.http.routers.dashboard.service=api@internal"
       - "traefik.http.routers.dashboard.tls=true"
-
-      # Basic‑auth middleware
-      # - "traefik.http.middlewares.dashboard-auth.basicauth.users=admin:$$apr1$$BMTsAaTX$$ZLRspVbW4qPMSwADntGs/1"
-      # - "traefik.http.routers.dashboard.middlewares=dashboard-auth@docker"
     environment:
       - DOMAIN=${DOMAIN}
 
-  db:
+  tp1-db:
     image: camilagea/tp1-db:1.0.0
     container_name: tp1-db
+    ports:
+      - "3306:3306"
     environment:
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
       - MYSQL_DATABASE=${MYSQL_DATABASE}
@@ -50,7 +47,8 @@ services:
         limits:
           cpus: "0.50"
           memory: 512M
-  api-clientes:
+
+  tp1-api-clientes:
     image: camilagea/tp1-api-clientes:1.0.0
     container_name: tp1-api-clientes
     ports:
@@ -78,13 +76,12 @@ services:
       - "traefik.http.services.clientes.loadbalancer.server.port=8081"
       # Remove only /api
       - "traefik.http.middlewares.clientes-strip.stripprefix.prefixes=/api"
-
       # Attach middleware
       - "traefik.http.routers.clientes.middlewares=clientes-strip"
     depends_on:
-      - db
+      - tp1-db
   
-  web:
+  tp1-web:
     image: castilloabel/tp1-web:1.0.0
     container_name: tp1-web
     restart: always
@@ -95,8 +92,13 @@ services:
       - "traefik.http.routers.tp1-web.rule=Host(`${DOMAIN}`)"
       - "traefik.http.routers.tp1-web.entrypoints=websecure"
       - "traefik.http.routers.tp1-web.tls=true"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
 
-  api-transacciones:
+  tp1-api-transacciones:
     image: castilloabel/tp1-api-transacciones:2.0.0
     container_name: tp1-api-transacciones
     ports:
@@ -120,12 +122,15 @@ services:
       - "traefik.http.services.transacciones.loadbalancer.server.port=8084"
       # Remove only /api
       - "traefik.http.middlewares.transacciones-strip.stripprefix.prefixes=/api"
-
       # Attach middleware
       - "traefik.http.routers.transacciones.middlewares=transacciones-strip"
     depends_on:
-      - db
-
+      - tp1-db
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
 
 volumes:
   db_data:
