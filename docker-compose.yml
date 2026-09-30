@@ -26,6 +26,11 @@ services:
       - "traefik.http.routers.dashboard.tls=true"
     environment:
       - DOMAIN=${DOMAIN}
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
 
   tp1-db:
     image: camilagea/tp1-db:1.0.0
@@ -132,8 +137,8 @@ services:
           cpus: "0.25"
           memory: 256M
 
-  api-facturas:
-    image: tp1-api-facturas:1.1.0
+  tp1-api-facturas:
+    image: castilloabel/tp1-api-facturas:1.1.0
     container_name: tp1-api-facturas
     ports:
       - "8083:8083"
@@ -159,9 +164,14 @@ services:
       - "traefik.http.routers.facturas.middlewares=facturas-strip"
     depends_on:
       - tp1-db
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
   
-  api-tarjetas:
-    image: tp1-api-tarjetas:1.1.0
+  tp1-api-tarjetas:
+    image: castilloabel/tp1-api-tarjetas:1.1.0
     container_name: tp1-api-tarjetas
     ports:
       - "8085:8085"
@@ -187,6 +197,11 @@ services:
       - "traefik.http.routers.tarjetas.middlewares=tarjetas-strip"
     depends_on:
       - tp1-db
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
 
 volumes:
   db_data:
