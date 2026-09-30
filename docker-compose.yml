@@ -159,6 +159,34 @@ services:
       - "traefik.http.routers.facturas.middlewares=facturas-strip"
     depends_on:
       - tp1-db
+  
+  api-tarjetas:
+    image: tp1-api-tarjetas:1.1.0
+    container_name: tp1-api-tarjetas
+    ports:
+      - "8085:8085"
+    networks:
+      - proxy
+    restart: always
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME_TARJETAS}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - PORT=8085
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tarjetas.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/tarjetas`)"
+      - "traefik.http.routers.tarjetas.entrypoints=websecure"
+      - "traefik.http.routers.tarjetas.tls=true"
+      - "traefik.http.services.tarjetas.loadbalancer.server.port=8085"
+      # Remove only /api
+      - "traefik.http.middlewares.tarjetas-strip.stripprefix.prefixes=/api"
+      # Attach middleware
+      - "traefik.http.routers.tarjetas.middlewares=tarjetas-strip"
+    depends_on:
+      - tp1-db
 
 volumes:
   db_data:
