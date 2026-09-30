@@ -132,6 +132,34 @@ services:
           cpus: "0.25"
           memory: 256M
 
+  api-facturas:
+    image: tp1-api-facturas:1.1.0
+    container_name: tp1-api-facturas
+    ports:
+      - "8083:8083"
+    networks:
+      - proxy
+    restart: always
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME_FACTURAS}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - PORT=8083
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.facturas.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/facturas`)"
+      - "traefik.http.routers.facturas.entrypoints=websecure"
+      - "traefik.http.routers.facturas.tls=true"
+      - "traefik.http.services.facturas.loadbalancer.server.port=8083"
+      # Remove only /api
+      - "traefik.http.middlewares.facturas-strip.stripprefix.prefixes=/api"
+      # Attach middleware
+      - "traefik.http.routers.facturas.middlewares=facturas-strip"
+    depends_on:
+      - tp1-db
+
 volumes:
   db_data:
 

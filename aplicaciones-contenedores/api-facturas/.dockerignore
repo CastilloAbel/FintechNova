@@ -1,0 +1,10 @@
+.git
+.gitignore
+.dockerignore
+target/
+**/target/
+*.log
+.env
+.env.*
+**/.env
+**/.env.*
