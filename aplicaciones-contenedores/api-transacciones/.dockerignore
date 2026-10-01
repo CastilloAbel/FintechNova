@@ -6,3 +6,6 @@
 *.log
 README.md
 
+# Variables de entorno
+.env
+.env.*
