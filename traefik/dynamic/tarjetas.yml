@@ -1,0 +1,22 @@
+enable: true
+http:
+  routers:
+    tarjetas:
+      rule: "PathPrefix(`/api/tarjetas`)"
+      entrypoints:
+        - websecure
+      tls: true
+      middlewares:
+        - tarjetas-strip
+      service: tp1-api-tarjetas
+      priority: 100
+  middlewares:
+    tarjetas-strip:
+      stripPrefix:
+        prefixes:
+          - "/api"
+  services:
+    tp1-api-tarjetas:
+      loadBalancer:
+        servers:
+          - url: "http://tp1-api-tarjetas:8085"

@@ -10,3 +10,6 @@ db/data/
 .env.*
 !env.example
 traefik/certs/*
+traefik/secrets/*
+certs/*
+secrets/*
