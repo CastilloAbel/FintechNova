@@ -1,0 +1,22 @@
+enable: true
+http:
+  routers:
+    transacciones:
+      rule: "PathPrefix(`/api/transacciones`)"
+      entrypoints:
+        - websecure
+      tls: true
+      middlewares:
+        - transacciones-strip
+      service: tp1-api-transacciones
+      priority: 100
+  middlewares:
+    transacciones-strip:
+      stripPrefix:
+        prefixes:
+          - "/api"
+  services:
+    tp1-api-transacciones:
+      loadBalancer:
+        servers:
+          - url: "http://tp1-api-transacciones:8084"

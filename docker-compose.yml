@@ -1,6 +1,6 @@
 services:
   traefik:
-    image: traefik:v3.7
+    image: castilloabel/tp1-traefik:2.5.0
     container_name: traefik
     restart: always
     security_opt:
@@ -11,12 +11,8 @@ services:
       - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./traefik/certs:/certs:ro
-      - ./traefik/dynamic:/dynamic:ro
-      - ./traefik/traefik.yml:/traefik.yml
-    labels:
-      # Enable self‑routing
-      - "traefik.enable=true"
+      - ./certs:/certs:ro
+      - ./secrets:/run/secrets:ro
     environment:
       - DOMAIN=${DOMAIN}
     deploy:
@@ -53,7 +49,6 @@ services:
       - DB_NAME=${DB_NAME_CLIENTES}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
-      - PORT=8081
     networks:
       - proxy
     restart: always
@@ -62,16 +57,6 @@ services:
         limits:
           cpus: "0.25"
           memory: 256M
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.clientes.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/clientes`)"
-      - "traefik.http.routers.clientes.entrypoints=websecure"
-      - "traefik.http.routers.clientes.tls=true"
-      - "traefik.http.services.clientes.loadbalancer.server.port=8081"
-      # Remove only /api
-      - "traefik.http.middlewares.clientes-strip.stripprefix.prefixes=/api"
-      # Attach middleware
-      - "traefik.http.routers.clientes.middlewares=clientes-strip"
     depends_on:
       - tp1-db
   
@@ -81,11 +66,6 @@ services:
     restart: always
     networks:
       - proxy
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.tp1-web.rule=Host(`${DOMAIN}`)"
-      - "traefik.http.routers.tp1-web.entrypoints=websecure"
-      - "traefik.http.routers.tp1-web.tls=true"
     deploy:
       resources:
         limits:
@@ -105,17 +85,7 @@ services:
       - IPAPI_TOKEN=${IPAPI_TOKEN}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
-      - PORT=8084
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.transacciones.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/transacciones`)"
-      - "traefik.http.routers.transacciones.entrypoints=websecure"
-      - "traefik.http.routers.transacciones.tls=true"
-      - "traefik.http.services.transacciones.loadbalancer.server.port=8084"
-      # Remove only /api
-      - "traefik.http.middlewares.transacciones-strip.stripprefix.prefixes=/api"
-      # Attach middleware
-      - "traefik.http.routers.transacciones.middlewares=transacciones-strip"
+      - IPAPI_TOKEN=${IPAPI_TOKEN}
     depends_on:
       - tp1-db
     deploy:
@@ -136,17 +106,6 @@ services:
       - DB_NAME=${DB_NAME_FACTURAS}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
-      - PORT=8083
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.facturas.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/facturas`)"
-      - "traefik.http.routers.facturas.entrypoints=websecure"
-      - "traefik.http.routers.facturas.tls=true"
-      - "traefik.http.services.facturas.loadbalancer.server.port=8083"
-      # Remove only /api
-      - "traefik.http.middlewares.facturas-strip.stripprefix.prefixes=/api"
-      # Attach middleware
-      - "traefik.http.routers.facturas.middlewares=facturas-strip"
     depends_on:
       - tp1-db
     deploy:
@@ -167,17 +126,6 @@ services:
       - DB_NAME=${DB_NAME_TARJETAS}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
-      - PORT=8085
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.tarjetas.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/tarjetas`)"
-      - "traefik.http.routers.tarjetas.entrypoints=websecure"
-      - "traefik.http.routers.tarjetas.tls=true"
-      - "traefik.http.services.tarjetas.loadbalancer.server.port=8085"
-      # Remove only /api
-      - "traefik.http.middlewares.tarjetas-strip.stripprefix.prefixes=/api"
-      # Attach middleware
-      - "traefik.http.routers.tarjetas.middlewares=tarjetas-strip"
     depends_on:
       - tp1-db
     deploy:
@@ -198,15 +146,6 @@ services:
       - DB_NAME=${DB_NAME_PAGOS}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
-      - PORT=8082
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.pagos.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/pagos`)"
-      - "traefik.http.routers.pagos.entrypoints=websecure"
-      - "traefik.http.routers.pagos.tls=true"
-      - "traefik.http.services.pagos.loadbalancer.server.port=8082"
-      - "traefik.http.middlewares.pagos-strip.stripprefix.prefixes=/api"
-      - "traefik.http.routers.pagos.middlewares=pagos-strip"
     depends_on:
       - tp1-db
     deploy:

@@ -1,0 +1,15 @@
+enable: true
+http:
+  routers:
+    web:
+      rule: "PathPrefix(`/`)"
+      entrypoints:
+        - websecure
+      tls: true
+      service: tp1-web
+      priority: 1
+  services:
+    tp1-web:
+      loadBalancer:
+        servers:
+          - url: "http://tp1-web:8080"
