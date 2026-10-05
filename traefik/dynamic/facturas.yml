@@ -1,0 +1,22 @@
+enable: true
+http:
+  routers:
+    facturas:
+      rule: "PathPrefix(`/api/facturas`)"
+      entrypoints:
+        - websecure
+      tls: true
+      middlewares:
+        - facturas-strip
+      service: tp1-api-facturas
+      priority: 100
+  middlewares:
+    facturas-strip:
+      stripPrefix:
+        prefixes:
+          - "/api"
+  services:
+    tp1-api-facturas:
+      loadBalancer:
+        servers:
+          - url: "http://tp1-api-facturas:8083"

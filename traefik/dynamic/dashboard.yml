@@ -1,0 +1,16 @@
+enable: true
+http:
+  routers:
+    dashboard:
+      rule: "PathPrefix(`/dashboard`) || PathPrefix(`/api`)"
+      entrypoints:
+        - websecure
+      service: api@internal
+      tls: true
+      middlewares:
+        - dashboard-auth
+      priority: 10
+  middlewares:
+    dashboard-auth:
+      basicAuth:
+        usersFile: /run/secrets/dashboard_users

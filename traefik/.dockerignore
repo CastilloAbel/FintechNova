@@ -1,0 +1,5 @@
+certs/
+.git
+.log
+.env
+secrets/

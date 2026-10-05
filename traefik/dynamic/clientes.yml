@@ -1,0 +1,22 @@
+enable: true
+http:
+  routers:
+    clientes:
+      rule: "PathPrefix(`/api/clientes`)"
+      entrypoints:
+        - websecure
+      tls: true
+      middlewares:
+        - clientes-strip
+      service: tp1-api-clientes
+      priority: 100
+  middlewares:
+    clientes-strip:
+      stripPrefix:
+        prefixes:
+          - "/api"
+  services:
+    tp1-api-clientes:
+      loadBalancer:
+        servers:
+          - url: "http://tp1-api-clientes:8080"

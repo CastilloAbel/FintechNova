@@ -12,9 +12,8 @@ providers:
     exposedByDefault: false
     network: proxy
   file:
-    filename: /dynamic/tls.yaml
+    directory: /dynamic
+    watch: true
 log:
   level: INFO
 accessLog: true
-metrics:
-  prometheus: true

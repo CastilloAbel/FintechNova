@@ -1,0 +1,22 @@
+enable: true
+http:
+  routers:
+    pagos:
+      rule: "PathPrefix(`/api/pagos`)"
+      entrypoints:
+        - websecure
+      tls: true
+      middlewares:
+        - pagos-strip
+      service: tp1-api-pagos
+      priority: 100
+  middlewares:
+    pagos-strip:
+      stripPrefix:
+        prefixes:
+          - "/api"
+  services:
+    tp1-api-pagos:
+      loadBalancer:
+        servers:
+          - url: "http://tp1-api-pagos:8080"
