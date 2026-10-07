@@ -1,211 +1,68 @@
-* {
-  box-sizing: border-box;
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-primary-50: #f0f9ff;
+  --color-primary-100: #e0f2fe;
+  --color-primary-200: #bae6fd;
+  --color-primary-300: #7dd3fc;
+  --color-primary-400: #38bdf8;
+  --color-primary-500: #0ea5e9;
+  --color-primary-600: #0284c7;
+  --color-primary-700: #0369a1;
+  --color-primary-800: #075985;
+  --color-primary-900: #0c4a6e;
+  --color-primary-950: #082f49;
+
+  --color-surface-50: #f8fafc;
+  --color-surface-100: #f1f5f9;
+  --color-surface-200: #e2e8f0;
+  --color-surface-300: #cbd5e1;
+  --color-surface-400: #94a3b8;
+  --color-surface-500: #64748b;
+  --color-surface-600: #475569;
+  --color-surface-700: #334155;
+  --color-surface-800: #1e293b;
+  --color-surface-900: #0f172a;
+  --color-surface-950: #020617;
+
+  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
-body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  max-width: 1050px;
-  margin: 0 auto;
-  padding: 2.5rem 1.5rem;
-  background: #f4f6f9;
-  color: #1f2937;
-}
+@layer base {
+  html {
+    min-width: 320px;
+    scroll-behavior: smooth;
+  }
 
-/* Encabezado */
-
-.encabezado {
-  background: #ffffff;
-  padding: 1.7rem 2rem;
-  border-radius: 12px;
-  margin-bottom: 1.5rem;
-  border: 1px solid #e5e7eb;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
-}
-
-.encabezado-superior {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-}
-
-.encabezado h1 {
-  margin: 0;
-  font-size: 2rem;
-  color: #111827;
-}
-
-.subtitulo {
-  margin: 0.25rem 0 0;
-  font-size: 1.05rem;
-  color: #6b7280;
-}
-
-.badge-grupo {
-  background: #1f2937;
-  color: #ffffff;
-  padding: 0.5rem 0.8rem;
-  border-radius: 20px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-}
-
-.integrantes {
-  display: flex;
-  gap: 2rem;
-  flex-wrap: wrap;
-  margin-top: 1.25rem;
-  padding-top: 1rem;
-  border-top: 1px solid #e5e7eb;
-  color: #4b5563;
-  font-size: 0.9rem;
-}
-
-.integrantes strong {
-  color: #1f2937;
-}
-/* Navegación */
-
-nav {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1.5rem;
-  flex-wrap: wrap;
-}
-
-nav button {
-  padding: 0.65rem 1.1rem;
-  cursor: pointer;
-  border: 1px solid #d1d5db;
-  background: #ffffff;
-  color: #374151;
-  border-radius: 7px;
-  font-weight: 500;
-  transition: 0.2s;
-}
-
-nav button:hover {
-  background: #f3f4f6;
-}
-
-nav button.activo {
-  background: #1f2937;
-  color: #ffffff;
-  border-color: #1f2937;
-}
-
-/* Contenido */
-
-section {
-  background: #ffffff;
-  padding: 1.5rem;
-  border-radius: 12px;
-  border: 1px solid #e5e7eb;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.04);
-}
-
-section h2 {
-  margin-top: 0;
-}
-
-/* Formularios */
-
-section form {
-  display: flex;
-  gap: 0.6rem;
-  margin-bottom: 1.5rem;
-  flex-wrap: wrap;
-}
-
-input {
-  padding: 0.65rem 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  font: inherit;
-}
-
-input:focus {
-  outline: none;
-  border-color: #6b7280;
-}
-
-/* Botones */
-
-form button,
-td button {
-  padding: 0.6rem 1rem;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-}
-
-form button {
-  background: #1f2937;
-  color: white;
-}
-
-form button:hover {
-  background: #374151;
-}
-
-td button {
-  background: #f3f4f6;
-  color: #374151;
-  border: 1px solid #d1d5db;
-}
-
-td button:hover {
-  background: #e5e7eb;
-}
-
-/* Tabla */
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-bottom: 1rem;
-}
-
-th {
-  font-size: 0.85rem;
-  color: #6b7280;
-  text-transform: uppercase;
-}
-
-th,
-td {
-  text-align: left;
-  padding: 0.8rem;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-tbody tr:hover {
-  background: #f9fafb;
-}
-
-/* Responsive */
-
-@media (max-width: 700px) {
   body {
-    padding: 1rem;
+    min-height: 100vh;
+    background-color: #0f172a;
+    background-image: radial-gradient(ellipse at 50% -15%, rgb(14 165 233 / 14%), transparent 48%);
+    color: #e2e8f0;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
   }
 
-  .encabezado {
-    padding: 1.5rem;
+  button,
+  input {
+    font: inherit;
   }
 
-  section {
-    overflow-x: auto;
+  button:focus-visible,
+  input:focus-visible {
+    outline: 2px solid #38bdf8;
+    outline-offset: 2px;
   }
 
-  section form {
-    flex-direction: column;
+  [hidden] {
+    display: none !important;
   }
+}
 
-  input,
-  form button {
-    width: 100%;
+@layer utilities {
+  .gradient-text {
+    @apply bg-gradient-to-r from-primary-300 via-primary-400 to-primary-600 bg-clip-text text-transparent;
   }
 }

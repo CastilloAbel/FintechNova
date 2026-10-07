@@ -1,10 +1,12 @@
 import { defineConfig } from 'vite';
+import tailwindcss from '@tailwindcss/vite';
 
 // En "npm run dev", Vite proxea /api/<servicio> al puerto correspondiente en localhost,
 // simulando lo que en produccion hace NGINX (ver nginx/nginx.conf). Sirve para desarrollar
 // el front corriendo las 5 APIs sueltas en el host (ver el README de cada api-*), sin tener
 // que levantar todo el stack con Docker.
 export default defineConfig({
+  plugins: [tailwindcss()],
   server: {
     proxy: {
       '/api/clientes': { target: 'http://localhost:8081', changeOrigin: true, rewrite: (p) => p.replace(/^\/api/, '') },
