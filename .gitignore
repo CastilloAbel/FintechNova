@@ -13,3 +13,4 @@ traefik/certs/*
 traefik/secrets/*
 certs/*
 secrets/*
+*.pem
