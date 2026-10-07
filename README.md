@@ -148,32 +148,9 @@ El script construye todas las imágenes y, si las construcciones finalizan corre
 
 ### `deploy.sh`
 
-Automatiza el despliegue de la aplicación en una instancia EC2.
+`deploy.sh` se copia junto con `.env`, `docker-compose.yml`, `certs/` y `secrets/` a Amazon Linux 2023 y se ejecuta dentro de EC2. Instala Docker y el plugin Compose, descarga las imágenes ya publicadas, levanta los ocho servicios y comprueba contenedores y endpoints HTTPS. No recibe parámetros ni necesita la clave PEM en la instancia.
 
-Antes de ejecutarlo se indican la dirección de la instancia y la clave SSH:
-
-```sh
-export EC2_HOST=<IP_EC2>
-export SSH_KEY=<RUTA_CLAVE_PEM>
-```
-
-Luego:
-
-```sh
-bash deploy.sh deploy camilagea 1.0.0
-```
-
-El proceso prepara la instancia, instala Docker y Docker Compose cuando es necesario, transfiere los archivos privados requeridos, descarga las imágenes desde Docker Hub y levanta los contenedores.
-
-También ejecuta pruebas HTTPS reales sobre la aplicación.
-
-Para verificar posteriormente un despliegue existente:
-
-```sh
-bash deploy.sh verify camilagea 1.0.0
-```
-
-Más información en [DEPLOY.md](./DEPLOY.md).
+El flujo completo de copia desde la PC y ejecución remota está en [DEPLOY.md](./DEPLOY.md).
 
 ## Verificación
 
@@ -190,19 +167,20 @@ El despliegue comprueba las siguientes rutas:
 
 Las pruebas se realizan mediante HTTPS.
 
-Un despliegue correcto produce resultados equivalentes a:
+La verificación informa HTTP 200 para la web y las cinco APIs, y HTTP 401 para el dashboard cuando se consulta sin credenciales. La salida es equivalente a:
 
 ```text
-OK HTTPS /
-OK HTTPS /api/clientes
-OK HTTPS /api/pagos
-OK HTTPS /api/facturas
-OK HTTPS /api/transacciones
-OK HTTPS /api/tarjetas
-
-Web y cinco APIs comprobadas correctamente.
-El dashboard exige autenticacion.
+OK HTTPS / (HTTP 200)
+OK HTTPS /api/clientes (HTTP 200)
+OK HTTPS /api/pagos (HTTP 200)
+OK HTTPS /api/facturas (HTTP 200)
+OK HTTPS /api/transacciones (HTTP 200)
+OK HTTPS /api/tarjetas (HTTP 200)
+OK HTTPS /dashboard/ (HTTP 401)
+Despliegue y verificaciones completados.
 ```
+
+La prueba comprueba códigos HTTP; no analiza el cuerpo JSON ni reemplaza pruebas funcionales de las APIs.
 
 ## HTTPS y seguridad
 
