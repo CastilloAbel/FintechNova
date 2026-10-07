@@ -132,7 +132,7 @@ sobre un entorno con información que se quiera conservar, ya que elimina tambi�
 
 ## Automatización
 
-El proyecto incluye dos scripts principales:
+El flujo automatizado utiliza tres scripts:
 
 ### `build.sh`
 
@@ -145,6 +145,18 @@ bash build.sh camilagea 1.0.0
 ```
 
 El script construye todas las imágenes y, si las construcciones finalizan correctamente, las publica utilizando el mismo namespace y tag.
+
+### `prepare-deploy.sh`
+
+Antes de transferir el proyecto a EC2, genera el certificado autofirmado para Traefik y agrega un usuario BasicAuth al secreto del dashboard. Recibe el nombre de usuario como argumento y solicita la contraseña de forma oculta. Requiere Docker iniciado y OpenSSL disponible en la PC.
+
+Ejemplo:
+
+```sh
+bash prepare-deploy.sh abel
+```
+
+El certificado se reemplaza en cada ejecución; los usuarios nuevos se agregan a `secrets/dashboard_users` y no se permiten nombres duplicados. Consulta [DEPLOY.md](./DEPLOY.md) para el flujo completo.
 
 ### `deploy.sh`
 
@@ -225,7 +237,7 @@ Los problemas encontrados y sus soluciones se encuentran documentados en [ERRORE
 
 ## Documentación
 
-- [DEPLOY.md](./DEPLOY.md) — construcción, publicación y despliegue automatizado.
+- [DEPLOY.md](./DEPLOY.md) — construcción, preparación de certificados/BasicAuth y despliegue automatizado.
 - [SEGURIDAD.md](./SEGURIDAD.md) — HTTPS, certificados, puertos y manejo de secretos.
 - [AWS_EC2.md](./AWS_EC2.md) — configuración y despliegue en Amazon EC2.
 - [ERRORES.md](./ERRORES.md) — errores encontrados y soluciones aplicadas.

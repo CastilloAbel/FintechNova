@@ -1,6 +1,6 @@
 # Build y despliegue en EC2
 
-El flujo queda separado en dos partes: `build.sh` construye y publica las imágenes desde la PC; `deploy.sh` se copia a EC2 y se ejecuta allí. La clave privada PEM nunca se copia a la instancia.
+El flujo usa tres scripts: `build.sh` construye y publica las imágenes desde la PC; `prepare-deploy.sh` crea localmente el certificado y el usuario del dashboard; `deploy.sh` se copia a EC2 y se ejecuta allí. La clave privada PEM nunca se copia a la instancia.
 
 ## 1. Publicar las imágenes desde la PC
 
@@ -24,7 +24,21 @@ IMAGE_TAG=1.0.0
 
 Deben coincidir con los argumentos usados en `build.sh`. El archivo `.env` contiene credenciales; no lo subas a Git. El archivo `env.example` sirve de plantilla.
 
-## 3. Crear y configurar la instancia
+## 3. Generar certificado y usuario del dashboard
+
+Antes de copiar archivos a EC2, desde la raíz del repositorio ejecuta el script local `prepare-deploy.sh` indicando el nombre de usuario que quieras crear:
+
+```sh
+bash prepare-deploy.sh abel
+```
+
+El script solicita la contraseña dos veces sin mostrarla ni recibirla como argumento. La envía por entrada estándar al contenedor `httpd:2.4` para generar el hash compatible con Traefik y agrega `usuario:hash` al final de `secrets/dashboard_users`. Docker descargará esa imagen si no está localmente.
+
+También genera `certs/local.crt` y `certs/local.key` con el CN fijo `*.19.grupo.devops.frc.utn.edu.ar` y vigencia de 365 días. En cada ejecución reemplaza el certificado y la clave anteriores. Los usuarios nuevos se agregan al archivo de secretos; si el nombre ya existe, el script se detiene para evitar entradas duplicadas. No edites ni compartas la contraseña o el hash.
+
+Requisitos en la PC: Docker iniciado y OpenSSL disponible. Las carpetas `certs/` y `secrets/` deben existir; el script no las crea. Estos archivos están excluidos de Git.
+
+## 4. Crear y configurar la instancia
 
 Crea una instancia Amazon Linux 2023. El script acepta arquitecturas `x86_64` y `aarch64`. En el Security Group permite:
 
@@ -34,7 +48,7 @@ Crea una instancia Amazon Linux 2023. El script acepta arquitecturas `x86_64` y 
 
 No hace falta abrir los puertos de las APIs ni de MariaDB. Conserva el `.pem` únicamente en la PC y usa el usuario `ec2-user` para Amazon Linux.
 
-## 4. Copiar los archivos desde la PC
+## 5. Copiar los archivos desde la PC
 
 Desde la raíz de `tp-1`, copia únicamente lo necesario para ejecutar Compose:
 
@@ -42,19 +56,17 @@ Si el despliegue anterior se ejecutó desde `/home/ec2-user` con el script viejo
 
 ```sh
 ssh -i "FinTech-Nova.pem" ec2-user@<DNS_O_IP_PUBLICA> \
-  'cd /home/ec2-user && sudo docker compose --project-name tp-1 --env-file .env -f docker-compose.yml down'
+  'cd /home/ec2-user/tp-1 && sudo docker compose -f docker-compose.yml down'
 ```
 
-La opción `--project-name` se necesita aquí solo para retirar el despliegue anterior, que se creó con ese nombre desde otra carpeta. Los siguientes despliegues y comandos usarán la carpeta `~/tp-1` y no la necesitarán.
 
 ```sh
-ssh -i "FinTech-Nova.pem" ec2-user@<DNS_O_IP_PUBLICA> "mkdir -p /home/ec2-user/tp-1"
 scp -i "FinTech-Nova.pem" -r certs/ secrets/ .env docker-compose.yml deploy.sh ec2-user@<DNS_O_IP_PUBLICA>:/home/ec2-user/tp-1/
 ```
 
 Sustituye `<DNS_O_IP_PUBLICA>` por la dirección actual de la instancia. No agregues la clave PEM a la lista de archivos.
 
-## 5. Ejecutar el despliegue en EC2
+## 6. Ejecutar el despliegue en EC2
 
 ```sh
 ssh -i "FinTech-Nova.pem" ec2-user@<DNS_O_IP_PUBLICA> "bash ~/tp-1/deploy.sh"
@@ -73,7 +85,7 @@ El script, ya dentro de EC2:
 
 Las pruebas HTTP se hacen desde la propia instancia contra `127.0.0.1`; el certificado es autofirmado, por eso `curl` usa `-k`. Se verifica el código de respuesta HTTP, no se analiza el cuerpo JSON ni se valida la lógica funcional interna de cada API. Las rutas actuales de Traefik se seleccionan por path. El script no compila imágenes, no necesita la clave PEM y no ejecuta `docker compose down` ni elimina volúmenes. Usa `sudo docker` en vez de agregar `ec2-user` al grupo `docker`, que concede privilegios equivalentes a root.
 
-## 6. Comprobaciones posteriores
+## 7. Comprobaciones posteriores
 
 Para revisar el estado o los logs más tarde:
 

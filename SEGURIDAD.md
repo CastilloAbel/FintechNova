@@ -74,6 +74,8 @@ La opción `-k` permite realizar la prueba HTTPS sin exigir que el certificado h
 
 En un entorno productivo se debería utilizar un certificado emitido por una autoridad certificadora confiable.
 
+El certificado y su clave se generan localmente antes de transferir los archivos a EC2 mediante `prepare-deploy.sh`. El certificado usa el CN fijo `*.19.grupo.devops.frc.utn.edu.ar`; la clave privada se guarda con permisos restrictivos y no se versiona. Cada ejecución reemplaza el par anterior.
+
 ---
 
 ## 4. Puerto HTTP 80
@@ -189,6 +191,8 @@ secrets/dashboard_users
 ```
 
 y no debe almacenarse públicamente en el repositorio.
+
+El usuario se agrega con `prepare-deploy.sh`; la contraseña se solicita sin mostrarla y se envía por entrada estándar a `htpasswd` dentro de un contenedor `httpd:2.4`. El archivo guarda el hash, no la contraseña en texto claro. Cada usuario distinto se agrega en una nueva línea; los nombres repetidos se rechazan.
 
 Por lo tanto, una solicitud al dashboard sin credenciales debe recibir una respuesta de autenticación requerida.
 

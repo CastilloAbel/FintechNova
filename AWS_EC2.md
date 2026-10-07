@@ -134,12 +134,14 @@ La instancia EC2 descarga estas imágenes desde Docker Hub. No se realiza la con
 
 ## 6. Configuración del despliegue
 
-El archivo `.env` incluye `DOCKER_USER` e `IMAGE_TAG`, que deben coincidir con el namespace y el tag usados al ejecutar `build.sh`, además de las credenciales de la aplicación. Desde la PC, se copian los archivos necesarios y se inicia el despliegue remoto:
+Antes de transferir, genera el certificado y agrega el usuario de Traefik ejecutando localmente `bash prepare-deploy.sh <usuario-dashboard>`; el script solicita la contraseña de forma oculta. Para más detalles, consulta [DEPLOY.md](./DEPLOY.md).
+
+El archivo `.env` incluye `DOCKER_USER` e `IMAGE_TAG`, que deben coincidir con el namespace y el tag usados al ejecutar `build.sh`, además de las credenciales de la aplicación. Desde la raíz del proyecto en la PC, se copian los archivos necesarios y se inicia el despliegue remoto:
 
 ```sh
 scp -i FinTech-Nova.pem -r certs/ secrets/ .env docker-compose.yml deploy.sh ec2-user@<IP_O_DNS_EC2>:/home/ec2-user/tp-1/
-ssh -i .pem ec2-user@<IP_O_DNS_EC2> "bash ~/tp-1/deploy.sh"
-```FinTech-Nova
+ssh -i FinTech-Nova.pem ec2-user@<IP_O_DNS_EC2> "bash ~/tp-1/deploy.sh"
+```
 
 La PEM permanece en la PC: se usa para SSH/SCP y no se copia a EC2. `deploy.sh` se ejecuta en EC2 sin parámetros; el usuario y el tag de las imágenes se leen desde `.env`. Se conserva la carpeta `tp-1` porque Compose infiere de ella el nombre del proyecto; no se especifica `--project-name` en el script.
 
@@ -327,6 +329,9 @@ PC: Docker login y build.sh
       |
       v
 8 imágenes en Docker Hub
+      |
+      v
+PC: prepare-deploy.sh genera certs y usuario BasicAuth
       |
       v
 PC: scp de .env, Compose, certs, secrets y deploy.sh
