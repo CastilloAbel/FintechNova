@@ -224,7 +224,7 @@ function crearSeccion(entidad) {
       if (!response.ok) throw new Error(`El servidor respondió HTTP ${response.status}.`);
       form.reset();
       mostrarAviso(section, 'Registro agregado correctamente.', 'success');
-      await cargar(entidad, tbody, columnas);
+      await cargar(entidad, tbody, columnas, section);
     } catch (error) {
       mostrarAviso(section, `No se pudo agregar el registro. ${error.message}`, 'error');
     } finally {
