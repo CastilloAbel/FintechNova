@@ -121,6 +121,26 @@ function crearSeccion(entidad) {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const datos = Object.fromEntries(new FormData(form).entries());
+    // Validar IP en Transacciones
+    if (entidad.key === 'transacciones') {
+      const ip = datos.origen_ip.trim();
+
+      const partes = ip.split('.');
+      const ipValida =
+        partes.length === 4 &&
+        partes.every((parte) => {
+          const numero = Number(parte);
+          return parte !== '' &&
+            Number.isInteger(numero) &&
+            numero >= 0 &&
+            numero <= 255;
+        });
+
+      if (!ipValida) {
+        alert('Ingresá una dirección IPv4 válida. Ejemplo: 8.8.4.4');
+        return;
+      }
+    }
     entidad.campos.forEach((campo) => {
       if (campo.type === 'number') datos[campo.name] = Number(datos[campo.name]);
     });
@@ -162,10 +182,45 @@ async function cargar(entidad, tbody, columnas) {
 }
 
 function render() {
-  const header = document.createElement('h1');
-  header.textContent = 'FinTech Nova — Panel de Microservicios';
-  app.appendChild(header);
+  const encabezado = document.createElement('header');
+  encabezado.className = 'encabezado';
+
+  const encabezadoSuperior = document.createElement('div');
+  encabezadoSuperior.className = 'encabezado-superior';
+
+  const info = document.createElement('div');
+
+  const titulo = document.createElement('h1');
+  titulo.textContent = 'FinTech Nova';
+
+  const subtitulo = document.createElement('p');
+  subtitulo.className = 'subtitulo';
+  subtitulo.textContent = 'Panel de Microservicios';
+
+  info.appendChild(titulo);
+  info.appendChild(subtitulo);
+
+  const badge = document.createElement('span');
+  badge.className = 'badge-grupo';
+  badge.textContent = 'GRUPO 19';
+
+  encabezadoSuperior.appendChild(info);
+  encabezadoSuperior.appendChild(badge);
+
+  const integrantes = document.createElement('div');
+  integrantes.className = 'integrantes';
+
+  integrantes.innerHTML = `
+    <span><strong>Camila Gea</strong> · Legajo 82327</span>
+    <span><strong>Abel Castillo</strong> · Legajo 90322</span>
+  `;
+
+  encabezado.appendChild(encabezadoSuperior);
+  encabezado.appendChild(integrantes);
+
+  app.appendChild(encabezado);
   app.appendChild(crearNav());
+
   const main = document.createElement('main');
   ENTIDADES.forEach((entidad) => main.appendChild(crearSeccion(entidad)));
   app.appendChild(main);

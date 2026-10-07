@@ -25,23 +25,9 @@ Todos los servicios se encuentran conectados a la red Docker `proxy`.
 
 Traefik es el único servicio expuesto hacia Internet mediante el puerto HTTPS `443`. Las APIs y MariaDB solamente son accesibles dentro de la red Docker.
 
-El flujo general es:
+### Diagrama de arquitectura
 
-```text
-Usuario
-   |
- HTTPS :443
-   |
-Traefik
-   |
-   +---- Web
-   |
-   +---- API Clientes --------+
-   +---- API Pagos -----------+
-   +---- API Facturas --------+---- MariaDB
-   +---- API Transacciones ---+
-   +---- API Tarjetas --------+
-```
+![Diagrama de arquitectura de FinTech Nova](docs/evidencias/diagrama-arquitectura.png)
 
 Las APIs de Pagos y Transacciones también realizan consultas a servicios externos para conversión de moneda y geolocalización de direcciones IP respectivamente.
 
