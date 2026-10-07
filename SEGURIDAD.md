@@ -243,11 +243,7 @@ Durante las pruebas desde WSL fue necesario almacenar una copia de la clave en e
 chmod 600 ~/FinTech-Nova.pem
 ```
 
-La ruta de la clave se proporciona al proceso de despliegue mediante:
-
-```sh
-export SSH_KEY="$HOME/FinTech-Nova.pem"
-```
+La clave se utiliza desde la PC únicamente para establecer conexiones `ssh` y copiar archivos con `scp`. No se transfiere a EC2 ni se necesita para ejecutar `deploy.sh` dentro de la instancia.
 
 ---
 
@@ -292,20 +288,7 @@ para evitar publicar accidentalmente información sensible.
 
 ## 13. Automatización del despliegue
 
-`deploy.sh` necesita información privada para acceder a EC2 y configurar el entorno.
-
-Estos valores no se encuentran hardcodeados en el script.
-
-Por ejemplo:
-
-```sh
-export EC2_HOST=<IP_EC2>
-export SSH_KEY=<RUTA_CLAVE_PEM>
-
-bash deploy.sh deploy <DOCKER_USER> <IMAGE_TAG>
-```
-
-Esto permite reutilizar el mismo script con diferentes instancias sin almacenar la clave privada dentro del repositorio.
+El despliegue separa las responsabilidades: la PC usa la PEM con `ssh`/`scp` para transferir `.env`, certificados, secretos, Compose y `deploy.sh`; luego el script se ejecuta en EC2 sin parámetros. `DOCKER_USER` e `IMAGE_TAG` se leen del `.env`. La clave privada no se copia a la instancia.
 
 ---
 

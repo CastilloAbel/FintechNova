@@ -97,25 +97,7 @@ chmod 600 ~/FinTech-Nova.pem
 
 ## 4. Preparación de la instancia
 
-La preparación de EC2 se encuentra automatizada mediante `deploy.sh`.
-
-El script verifica que la instancia corresponda a:
-
-```text
-Amazon Linux 2023
-x86_64
-```
-
-Luego instala e inicia Docker:
-
-```sh
-sudo dnf install -y docker
-sudo systemctl enable --now docker
-```
-
-También instala el plugin de Docker Compose cuando es necesario.
-
-De esta manera no es necesario preparar manualmente una instancia nueva antes del despliegue.
+La instancia de este procedimiento utiliza Amazon Linux 2023. Una vez copiado a EC2, `deploy.sh` instala Docker, utiliza el `curl-minimal` que normalmente ya viene instalado, habilita Docker y descarga e instala el plugin oficial de Docker Compose. Admite las arquitecturas `x86_64` y `aarch64` y verifica el checksum SHA-256 del plugin descargado. No se debe pedir a DNF instalar `curl` completo, ya que entra en conflicto con `curl-minimal`.
 
 ---
 
@@ -152,48 +134,32 @@ La instancia EC2 descarga estas imágenes desde Docker Hub. No se realiza la con
 
 ## 6. Configuración del despliegue
 
-Antes de ejecutar el despliegue se configuraron las variables:
+El archivo `.env` incluye `DOCKER_USER` e `IMAGE_TAG`, que deben coincidir con el namespace y el tag usados al ejecutar `build.sh`, además de las credenciales de la aplicación. Desde la PC, se copian los archivos necesarios y se inicia el despliegue remoto:
 
 ```sh
-export EC2_HOST=52.91.112.148
-export SSH_KEY="$HOME/FinTech-Nova.pem"
-```
+scp -i FinTech-Nova.pem -r certs/ secrets/ .env docker-compose.yml deploy.sh ec2-user@<IP_O_DNS_EC2>:/home/ec2-user/tp-1/
+ssh -i .pem ec2-user@<IP_O_DNS_EC2> "bash ~/tp-1/deploy.sh"
+```FinTech-Nova
 
-Luego se ejecutó:
-
-```sh
-bash deploy.sh deploy camilagea 1.0.0
-```
-
-`EC2_HOST` indica la instancia destino.
-
-`SSH_KEY` indica la clave utilizada para establecer la conexión SSH.
-
-Los argumentos:
-
-```text
-camilagea
-1.0.0
-```
-
-corresponden respectivamente al namespace de Docker Hub y al tag de las imágenes.
+La PEM permanece en la PC: se usa para SSH/SCP y no se copia a EC2. `deploy.sh` se ejecuta en EC2 sin parámetros; el usuario y el tag de las imágenes se leen desde `.env`. Se conserva la carpeta `tp-1` porque Compose infiere de ella el nombre del proyecto; no se especifica `--project-name` en el script.
 
 ---
 
 ## 7. Archivos transferidos
 
-El proceso de despliegue transfiere a EC2 únicamente los archivos necesarios para ejecutar la aplicación, entre ellos:
+La copia desde la PC transfiere a EC2 únicamente los archivos necesarios para ejecutar la aplicación:
 
 ```text
 docker-compose.yml
 .env
 certs/
 secrets/dashboard_users
+deploy.sh
 ```
 
 El código fuente de las APIs no necesita copiarse a EC2 porque ya se encuentra incluido en las imágenes publicadas en Docker Hub.
 
-Los archivos sensibles se transfieren durante el despliegue pero no se almacenan en el repositorio Git.
+Los archivos sensibles no se almacenan en Git. Al ejecutarse, `deploy.sh` restringe los permisos de `.env`, `certs/local.key` y `secrets/dashboard_users`.
 
 ---
 
@@ -256,20 +222,21 @@ Esto evita exponer directamente las APIs y la base de datos hacia Internet.
 
 ## 10. Pruebas automáticas
 
-Una vez levantados los contenedores, `deploy.sh` comprueba que la aplicación responda realmente mediante HTTPS.
+Una vez levantados los contenedores, `deploy.sh` consulta mediante `curl` los endpoints HTTPS desde la propia EC2. Exige HTTP 200 para la web y las cinco rutas de API, y HTTP 401 para `/dashboard/` sin credenciales. El certificado es autofirmado, por eso las peticiones usan `curl -k`.
+
+Esta comprobación confirma que las rutas responden con el código esperado, pero no interpreta el cuerpo ni valida el esquema JSON o las operaciones funcionales de cada API.
 
 Durante la prueba final se obtuvo:
 
 ```text
-OK HTTPS /
-OK HTTPS /api/clientes
-OK HTTPS /api/pagos
-OK HTTPS /api/facturas
-OK HTTPS /api/transacciones
-OK HTTPS /api/tarjetas
-
-Web y cinco APIs comprobadas correctamente.
-El dashboard exige autenticacion.
+OK HTTPS / (HTTP 200)
+OK HTTPS /api/clientes (HTTP 200)
+OK HTTPS /api/pagos (HTTP 200)
+OK HTTPS /api/facturas (HTTP 200)
+OK HTTPS /api/transacciones (HTTP 200)
+OK HTTPS /api/tarjetas (HTTP 200)
+OK HTTPS /dashboard/ (HTTP 401)
+Despliegue y verificaciones completados.
 ```
 
 Por lo tanto, no se considera exitoso el despliegue únicamente porque los contenedores aparezcan como `Up`: también se comprueba que los servicios respondan.
@@ -278,24 +245,13 @@ Por lo tanto, no se considera exitoso el despliegue únicamente porque los conte
 
 ## 11. Verificación posterior
 
-El despliegue puede verificarse nuevamente sin reinstalar ni recrear la aplicación mediante:
+Para consultar el estado después del despliegue, desde la PC se puede ejecutar:
 
 ```sh
-bash deploy.sh verify camilagea 1.0.0
+ssh -i FinTech-Nova.pem ec2-user@<IP_O_DNS_EC2> 'cd ~/tp-1 && sudo docker compose --env-file .env ps'
 ```
 
-Durante la prueba realizada se obtuvo nuevamente:
-
-```text
-OK HTTPS /
-OK HTTPS /api/clientes
-OK HTTPS /api/pagos
-OK HTTPS /api/facturas
-OK HTTPS /api/transacciones
-OK HTTPS /api/tarjetas
-```
-
-Esto confirmó que la aplicación permanecía disponible luego del despliegue.
+Los logs se consultan reemplazando `ps` por `logs`. Para detener sin borrar datos, ejecutar `sudo docker compose down` desde `~/tp-1`; luego se puede iniciar de nuevo con `sudo docker compose up -d` desde esa carpeta. No agregar `-v` si se necesita conservar la base. Las comprobaciones HTTPS se ejecutan automáticamente al correr `deploy.sh`.
 
 ---
 
@@ -364,31 +320,25 @@ Para demostrar el funcionamiento del despliegue se deben conservar capturas de:
 
 ## 15. Reproducibilidad
 
-El despliegue fue probado sobre una instancia nueva.
-
-El flujo utilizado fue:
+El flujo para repetir el despliegue es:
 
 ```text
-Docker login
-      |
-      v
-build.sh
+PC: Docker login y build.sh
       |
       v
 8 imágenes en Docker Hub
       |
       v
-Nueva EC2 Amazon Linux 2023
+PC: scp de .env, Compose, certs, secrets y deploy.sh
       |
       v
-deploy.sh
+PC: ssh para ejecutar bash ~/tp-1/deploy.sh en EC2
       |
       +--> instala/prepara Docker
       +--> instala Docker Compose
-      +--> transfiere configuración
       +--> docker compose pull
       +--> docker compose up -d
-      +--> verifica HTTPS
+      +--> verifica estados HTTP por HTTPS
       |
       v
 Aplicación funcionando
