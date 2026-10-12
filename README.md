@@ -104,41 +104,134 @@ Todos los servicios utilizan `restart: always`. Las APIs declaran `depends_on` p
 
 ## 4. Traefik, enrutamiento y HTTPS
 
-Traefik centraliza la entrada HTTPS y dirige las solicitudes según su ruta. La configuración general establece `websecure` en `:443`; los archivos de `dynamic/` definen los routers, middlewares, servicios y certificado.
+Traefik es el proxy de entrada: recibe las solicitudes HTTPS, selecciona un router según la ruta y las dirige al servicio correspondiente. El siguiente esquema resume cómo se organiza su configuración y el recorrido de las solicitudes.
 
-### Rutas y prioridades
+<img src="docs/evidencias/traefik-proxy.png" alt="Traefik Proxy" width="700">
 
-| Ruta | Destino interno | Prioridad |
-|---|---|---|
-| `/api/clientes` | `http://tp1-api-clientes:8080` | 100 |
-| `/api/pagos` | `http://tp1-api-pagos:8080` | 100 |
-| `/api/facturas` | `http://tp1-api-facturas:8083` | 100 |
-| `/api/transacciones` | `http://tp1-api-transacciones:8084` | 100 |
-| `/api/tarjetas` | `http://tp1-api-tarjetas:8085` | 100 |
-| `/dashboard` y `/api` del dashboard | `api@internal` | 10 |
-| `/` | `http://tp1-web:8080` | 1 |
+### 0. Estructura de configuración
+<img src="docs/evidencias/traefik-estructura.png" alt="Traefik Estructura" width="200">
 
-Las reglas específicas tienen prioridad sobre la ruta general de la web y sobre el prefijo del dashboard. Los middlewares `stripPrefix` eliminan `/api` antes de reenviar la solicitud.
+### 1. Configuración estática: entrypoint y providers
 
-Por ejemplo, la web envía `POST /api/clientes`; Traefik selecciona Clientes y reenvía `/clientes`. La API guarda el registro en `db_clientes`, devuelve la respuesta y la web vuelve a consultar el listado. Esta adaptación mantiene las rutas implementadas por las APIs y un prefijo público común.
+El archivo [traefik/traefik.yml](traefik/traefik.yml) contiene la configuración estática de Traefik. Este es su contenido completo:
 
-Los destinos actuales se declaran en el proveedor de archivos. También se habilita el proveedor Docker con `exposedByDefault: false`. Cada servicio de negocio tiene un único destino configurado; no se implementan réplicas ni distribución entre varias instancias de una API.
+```yaml
+## traefik.yml
+api:
+  insecure: false
+  dashboard: true
+entrypoints:
+  websecure:
+    address: ":443"
+    http:
+      tls: true
+providers:
+  docker:
+    exposedByDefault: false
+    network: proxy
+  file:
+    directory: /dynamic
+    watch: true
+log:
+  level: INFO
+accessLog: true
+```
 
-### Certificado y terminación TLS
+- **Entrypoint:** es el punto de entrada del tráfico. En esta configuración hay uno llamado `websecure`, que escucha en el puerto 443 y habilita TLS.
+- **API y dashboard:** `dashboard: true` activa el dashboard integrado; `insecure: false` evita exponerlo mediante el modo inseguro, sin la protección del router que se muestra más abajo.
+- **Providers:** el provider `file` lee la configuración dinámica de `/dynamic` y observa cambios. El provider `docker` está habilitado, pero `exposedByDefault: false` impide exponer automáticamente todos los contenedores; las rutas que explicamos aquí están declaradas en los archivos dinámicos.
+- **Logs:** `level: INFO` establece el nivel general de registro y `accessLog: true` habilita el registro de solicitudes.
 
-Traefik carga `certs/local.crt` y `certs/local.key`, montados durante el despliegue. El certificado contiene información de identidad y una clave pública; la clave privada correspondiente se mantiene secreta. TLS permite establecer la conexión cifrada entre navegador y proxy.
+### 2. TLS: certificado que usa el entrypoint
 
-El certificado es autofirmado, con CN `*.19.grupo.devops.frc.utn.edu.ar`, RSA de 2048 bits y vigencia de 365 días. El navegador puede mostrar advertencias porque no confía automáticamente en su emisor y porque el nombre puede no coincidir con la IP utilizada.
+El archivo [traefik/dynamic/tls.yaml](traefik/dynamic/tls.yaml) indica a Traefik qué certificado y clave utilizar. Se muestra completo:
 
-TLS termina en Traefik. Los destinos internos utilizan HTTP dentro de Docker. El certificado y su clave se generan fuera de la imagen, evitando distribuir la clave privada en Docker Hub.
+```yaml
+tls:
+  certificates:
+    - certFile: /certs/local.crt
+      keyFile:  /certs/local.key
+```
 
-### Dashboard y archivos privados
+TLS cifra la conexión entre el navegador y Traefik y permite que el servidor presente su certificado. La clave privada indicada por `keyFile` es sensible y debe mantenerse protegida. En los servicios de destino, las URLs están configuradas con `http://`, por lo que la terminación TLS ocurre en Traefik.
 
-El dashboard mantiene `insecure: false` y se protege con BasicAuth. Sus usuarios se leen de `/run/secrets/dashboard_users`, un archivo con hashes de contraseñas montado desde `secrets/`. Una solicitud sin credenciales debe recibir HTTP 401.
+### 3. Ejemplo de microservicio: router de Clientes
 
-Esta autenticación corresponde al dashboard; no está aplicada a las rutas de negocio. Las carpetas de certificados y secretos se montan en modo de solo lectura. La configuración también monta el socket de Docker para su proveedor, lo que supone acceso sensible al motor del host.
+El archivo [traefik/dynamic/clientes.yml](traefik/dynamic/clientes.yml) muestra el patrón aplicado a las APIs. Su contenido completo es:
 
-**Implementación:** [traefik.yml](traefik/traefik.yml), [regla de Clientes](traefik/dynamic/clientes.yml), [dashboard](traefik/dynamic/dashboard.yml) y [TLS](traefik/dynamic/tls.yaml).
+```yaml
+enable: true
+http:
+  routers:
+    clientes:
+      rule: "PathPrefix(`/api/clientes`)"
+      entrypoints:
+        - websecure
+      tls: true
+      middlewares:
+        - clientes-strip
+      service: tp1-api-clientes
+      priority: 100
+  middlewares:
+    clientes-strip:
+      stripPrefix:
+        prefixes:
+          - "/api"
+  services:
+    tp1-api-clientes:
+      loadBalancer:
+        servers:
+          - url: "http://tp1-api-clientes:8080"
+```
+
+En este bloque aparecen los tres elementos principales del enrutamiento:
+
+- **Router (`clientes`):** coincide con las solicitudes cuyo path empieza por `/api/clientes`, siempre que hayan entrado por `websecure`. Su prioridad es `100`.
+- **Middleware (`clientes-strip`):** procesa la solicitud antes de reenviarla y elimina el prefijo `/api`. Por ejemplo, `/api/clientes/123` llega a la API como `/clientes/123`, conservando el resto de la ruta.
+- **Service (`tp1-api-clientes`):** define el destino `http://tp1-api-clientes:8080`. El nombre del contenedor se resuelve en la red interna de Docker; la API recibe tráfico a través de Traefik, sin publicar ese puerto como entrada externa.
+
+Las otras cuatro APIs repiten este patrón y cambian el path, el nombre del middleware, el servicio y el puerto de destino:
+
+| Router | Regla | Service de destino | Prioridad |
+|---|---|---|---:|
+| Clientes | `/api/clientes` | `tp1-api-clientes:8080` | 100 |
+| Pagos | `/api/pagos` | `tp1-api-pagos:8080` | 100 |
+| Facturas | `/api/facturas` | `tp1-api-facturas:8083` | 100 |
+| Transacciones | `/api/transacciones` | `tp1-api-transacciones:8084` | 100 |
+| Tarjetas | `/api/tarjetas` | `tp1-api-tarjetas:8085` | 100 |
+| Dashboard | `/dashboard` o `/api` | `api@internal` | 10 |
+| Web | `/` | `tp1-web:8080` | 1 |
+
+Las prioridades resuelven el solapamiento de prefijos: el router de una API tiene prioridad `100`, por encima del router del dashboard (`10`), que también contempla `/api`. La web usa `PathPrefix(`/`)` como ruta general, con prioridad `1`. Así, las reglas específicas de las APIs prevalecen y las demás solicitudes pueden llegar al sitio.
+
+### 4. Dashboard y autenticación
+
+El archivo [traefik/dynamic/dashboard.yml](traefik/dynamic/dashboard.yml) configura el router del dashboard y su middleware. Se incluye completo:
+
+```yaml
+enable: true
+http:
+  routers:
+    dashboard:
+      rule: "PathPrefix(`/dashboard`) || PathPrefix(`/api`)"
+      entrypoints:
+        - websecure
+      service: api@internal
+      tls: true
+      middlewares:
+        - dashboard-auth
+      priority: 10
+  middlewares:
+    dashboard-auth:
+      basicAuth:
+        usersFile: /run/secrets/dashboard_users
+```
+
+El router `dashboard` coincide con `/dashboard` y con `/api`, usa el servicio interno `api@internal` y pasa cada solicitud por el middleware `dashboard-auth`. Ese middleware activa **BasicAuth** y obtiene las credenciales desde `/run/secrets/dashboard_users`.
+
+<img src="docs/evidencias/11-traefik-dashboard.png" alt="Traefik Dashboard" width="700">
+
+La autenticación protege el dashboard, que da acceso a la información y funciones de administración de Traefik, para que no quede disponible para cualquier visitante. El archivo de usuarios guarda hashes de contraseña en vez de contraseñas en texto plano. Por eso es información sensible: no se deben publicar ni incluir en el README las contraseñas o sus hashes. Esta protección está asociada al router del dashboard; no se aplica a los routers de las APIs.
 
 ## 5. Automatización de construcción y publicación
 
