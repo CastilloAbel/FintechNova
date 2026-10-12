@@ -396,24 +396,6 @@ El script comprueba códigos HTTP, no el contenido JSON ni todas las operaciones
 
 Las pruebas desde la interfaz complementan esa comprobación. La documentación previa registra una operación de Pagos con conversión ARS/USD y una transacción con la IP `8.8.4.4`, cuyo país obtenido fue `United States`. En la nueva prueba se comprobó el acceso público a la web, se renovaron las capturas de las cinco secciones y se accedió al dashboard después de preparar el usuario `camila`.
 
-### Prueba de persistencia
-
-Se creó el cliente `Prueba Persistencia`, con ID 4, y se recreó únicamente el contenedor de MariaDB, conservando su volumen:
-
-```bash
-cd ~/tp-1
-sudo docker compose up -d --no-deps --force-recreate tp1-db
-```
-
-Al recargar Clientes, el registro seguía disponible con el mismo ID y sus datos. Esta prueba verifica la conservación de un registro tras reemplazar el contenedor utilizando el volumen existente. Se realizó por separado; no forma parte de las comprobaciones automáticas de `deploy.sh`.
-
-### Pagos y Transacciones: servicios externos
-
-Pagos consulta una API de tipo de cambio y calcula el valor en USD. Transacciones consulta `ipapi.co` y utiliza `IPAPI_TOKEN` desde el entorno. Ambas consultas tienen un tiempo de espera de cinco segundos y permiten guardar el registro sin el campo enriquecido si el proveedor falla.
-
-<img src="docs/evidencias/06-web-pagos.png" alt="Pagos y conversión" width="700">
-
-<img src="docs/evidencias/08-web-transacciones.png" alt="Transacciones y país de origen" width="700">
 
 ### Otras funcionalidades
 
