@@ -305,7 +305,6 @@ También genera el certificado y la clave TLS. Cada ejecución reemplaza ese par
 Se copian Compose, `.env`, certificados, usuarios y `deploy.sh`. El código fuente no necesita transferirse porque ya está en las imágenes; la PEM se utiliza desde la PC y no se copia a EC2.
 
 ```bash
-ssh -i "RUTA_CLAVE.pem" ec2-user@IP_EC2 'mkdir -p ~/tp-1'
 scp -i "RUTA_CLAVE.pem" -r certs/ secrets/ .env docker-compose.yml deploy.sh ec2-user@IP_EC2:/home/ec2-user/tp-1/
 ssh -i "RUTA_CLAVE.pem" ec2-user@IP_EC2 'bash ~/tp-1/deploy.sh'
 ```
