@@ -108,10 +108,10 @@ Traefik es el proxy de entrada: recibe las solicitudes HTTPS, selecciona un rout
 
 <img src="docs/evidencias/traefik-proxy.png" alt="Traefik Proxy" width="700">
 
-### 0. Estructura de configuración
+### 4.0. Estructura de configuración
 <img src="docs/evidencias/traefik-estructura.png" alt="Traefik Estructura" width="200">
 
-### 1. Configuración estática: entrypoint y providers
+### 4.1. Configuración estática: entrypoint y providers
 
 El archivo [traefik/traefik.yml](traefik/traefik.yml) contiene la configuración estática de Traefik. Este es su contenido completo:
 
@@ -142,7 +142,7 @@ accessLog: true
 - **Providers:** el provider `file` lee la configuración dinámica de `/dynamic` y observa cambios. El provider `docker` está habilitado, pero `exposedByDefault: false` impide exponer automáticamente todos los contenedores; las rutas que explicamos aquí están declaradas en los archivos dinámicos.
 - **Logs:** `level: INFO` establece el nivel general de registro y `accessLog: true` habilita el registro de solicitudes.
 
-### 2. TLS: certificado que usa el entrypoint
+### 4.2. TLS: certificado que usa el entrypoint
 
 El archivo [traefik/dynamic/tls.yaml](traefik/dynamic/tls.yaml) indica a Traefik qué certificado y clave utilizar. Se muestra completo:
 
@@ -155,7 +155,7 @@ tls:
 
 TLS cifra la conexión entre el navegador y Traefik y permite que el servidor presente su certificado. La clave privada indicada por `keyFile` es sensible y debe mantenerse protegida. En los servicios de destino, las URLs están configuradas con `http://`, por lo que la terminación TLS ocurre en Traefik.
 
-### 3. Ejemplo de microservicio: router de Clientes
+### 4.3. Ejemplo de microservicio: router de Clientes
 
 El archivo [traefik/dynamic/clientes.yml](traefik/dynamic/clientes.yml) muestra el patrón aplicado a las APIs. Su contenido completo es:
 
@@ -204,7 +204,7 @@ Las otras cuatro APIs repiten este patrón y cambian el path, el nombre del midd
 
 Las prioridades resuelven el solapamiento de prefijos: el router de una API tiene prioridad `100`, por encima del router del dashboard (`10`), que también contempla `/api`. La web usa `PathPrefix(`/`)` como ruta general, con prioridad `1`. Así, las reglas específicas de las APIs prevalecen y las demás solicitudes pueden llegar al sitio.
 
-### 4. Dashboard y autenticación
+### 4.4. Dashboard y autenticación
 
 El archivo [traefik/dynamic/dashboard.yml](traefik/dynamic/dashboard.yml) configura el router del dashboard y su middleware. Se incluye completo:
 
