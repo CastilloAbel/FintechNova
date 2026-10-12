@@ -43,6 +43,28 @@ Clientes instala las bibliotecas Python indicadas en `requirements.txt`. Pagos i
 
 Para los componentes que requieren compilación o generación de archivos se utilizan **multi-stage builds**. Una etapa contiene las herramientas de construcción y la etapa final recibe el resultado junto con el entorno necesario para ejecutarlo.
 
+```Dockerfile
+FROM maven:3.9.9-eclipse-temurin-21 AS build
+
+WORKDIR /build
+COPY api-facturas/pom.xml .
+RUN mvn -B -DskipTests dependency:go-offline
+COPY api-facturas/src ./src
+RUN mvn -B -DskipTests package
+
+FROM eclipse-temurin:21-jre-jammy AS runtime
+
+WORKDIR /app
+RUN useradd --system --uid 10001 --create-home appuser
+COPY --from=build --chown=appuser:appuser /build/target/api-facturas.jar /app/app.jar
+USER appuser
+
+EXPOSE 8083
+ENV PORT=8083
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+```
+
+
 En Facturas, Maven compila el código Java y genera `api-facturas.jar`. Ese archivo se copia a una etapa con Java runtime. De esta manera, Maven y las herramientas de compilación quedan fuera de la imagen final. El mismo criterio se aplica a la publicación .NET, al ejecutable Go y a los archivos de la web generados por Vite.
 
 Ambas etapas se realizan durante la construcción de la imagen. La aplicación se inicia posteriormente, al ejecutar el contenedor. En la web, la etapa final utiliza `serve` para publicar la carpeta `dist` en el puerto 8080; el Dockerfile actual no ejecuta Nginx.
@@ -60,6 +82,29 @@ El build genera imágenes para `linux/amd64`, en correspondencia con la instanci
 **Implementación:** [Dockerfile de Facturas](aplicaciones-contenedores/api-facturas/Dockerfile), [Dockerfile de Web](aplicaciones-contenedores/web/Dockerfile), [Dockerfile de MariaDB](aplicaciones-contenedores/db/Dockerfile) y [Dockerfile de Traefik](traefik/Dockerfile).
 
 ## 3. Orquestación, configuración y persistencia
+
+```yaml
+# docker-compose.yml
+  tp1-api-facturas:
+    image: ${DOCKER_USER}/tp1-api-facturas:${IMAGE_TAG}
+    container_name: tp1-api-facturas
+    networks:
+      - proxy
+    restart: always
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME_FACTURAS}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+    depends_on:
+      - tp1-db
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+```
 
 [docker-compose.yml](docker-compose.yml) define la ejecución de los ocho servicios mediante imágenes publicadas. No contiene una sección de construcción local: el entorno de EC2 descarga las imágenes y ejecuta sus contenedores.
 
@@ -396,19 +441,14 @@ Cambiar las credenciales de `.env` no actualizaba los usuarios existentes: el vo
 
 Las APIs podían iniciar mientras MariaDB todavía no aceptaba conexiones; Traefik también podía recibir solicitudes antes de que su destino estuviera disponible. Se esperó la inicialización y se incorporaron reintentos en las verificaciones. `depends_on` establece orden de inicio, no disponibilidad.
 
-### Scripts de Windows y permisos SSH
+### Scripts de Windows
 
-Los finales de línea CRLF produjeron errores al ejecutar scripts en Linux. Se convirtieron a LF y se configuró `.gitattributes`. Para SSH se restringieron los permisos de la PEM; al usar WSL se guardó una copia en su directorio personal con permisos 600.
+Los finales de línea CRLF produjeron errores al ejecutar scripts en Linux. Se convirtieron a LF y se configuró `.gitattributes`.
 
-### Herramientas y acceso a la instancia
+### Herramientas
 
 La instalación del paquete completo `curl` entraba en conflicto con `curl-minimal` en Amazon Linux. El deploy se ajustó para instalar Docker y utilizar el curl disponible. El plugin Compose se descarga por separado.
 
-Una instancia del laboratorio no permitía SSH por su configuración de red y clave. Se creó una instancia propia con el par de claves y las reglas necesarias. Para operar Docker, el deploy actual utiliza `sudo docker`.
-
-### Contenedores anteriores
-
-Durante pruebas locales aparecieron conflictos con nombres de contenedores de ejecuciones previas. Se retiraron los que ya no correspondían al entorno y se mantuvo atención al nombre del proyecto Compose para evitar utilizar un volumen distinto al esperado.
 
 ## 10. Resultado y documentación complementaria
 
