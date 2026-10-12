@@ -85,25 +85,25 @@ El build genera imágenes para `linux/amd64`, en correspondencia con la instanci
 
 ```yaml
 # docker-compose.yml
-  tp1-api-facturas:
-    image: ${DOCKER_USER}/tp1-api-facturas:${IMAGE_TAG}
-    container_name: tp1-api-facturas
-    networks:
-      - proxy
-    restart: always
+  tp1-api-clientes:
+    image: ${DOCKER_USER}/tp1-api-clientes:${IMAGE_TAG}
+    container_name: tp1-api-clientes
     environment:
       - DB_HOST=${DB_HOST}
       - DB_PORT=${DB_PORT}
-      - DB_NAME=${DB_NAME_FACTURAS}
+      - DB_NAME=${DB_NAME_CLIENTES}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
-    depends_on:
-      - tp1-db
+    networks:
+      - proxy
+    restart: always
     deploy:
       resources:
         limits:
           cpus: "0.25"
           memory: 256M
+    depends_on:
+      - tp1-db
 ```
 
 [docker-compose.yml](docker-compose.yml) define la ejecución de los ocho servicios mediante imágenes publicadas. No contiene una sección de construcción local: el entorno de EC2 descarga las imágenes y ejecuta sus contenedores.
