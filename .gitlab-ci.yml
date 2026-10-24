@@ -47,3 +47,14 @@ probar_docker:
   script:
     - echo "Comprobando acceso al Docker del runner"
     - docker info
+
+analizar_dockerfiles:
+  stage: test
+  image: hadolint/hadolint:latest-debian
+  tags:
+    - devops-runner
+  script:
+    - echo "Analizando Dockerfiles de FinTech Nova"
+    - |
+      find . -name Dockerfile -type f -exec hadolint --no-fail {} +
+    - echo "Analisis de Dockerfiles finalizado"
