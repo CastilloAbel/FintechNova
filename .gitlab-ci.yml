@@ -1,5 +1,6 @@
 stages:
   - test
+  - build
 
 prueba_pipeline:
   stage: test
@@ -18,3 +19,20 @@ validar_compose:
     - echo "Validando docker-compose.yml"
     - docker compose config --no-interpolate --quiet
     - echo "Docker Compose validado correctamente"
+
+build_web:
+  stage: build
+  image: docker:27-cli
+  services:
+    - name: docker:27-dind
+      alias: docker
+  tags:
+    - runner-with-dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  script:
+    - echo "Construyendo imagen de FinTech Nova Web"
+    - docker info
+    - docker build -t tp1-web:prueba -f aplicaciones-contenedores/web/Dockerfile aplicaciones-contenedores
+    - echo "Imagen web construida correctamente"
