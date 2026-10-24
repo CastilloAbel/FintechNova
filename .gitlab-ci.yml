@@ -36,3 +36,12 @@ build_web:
     - docker info
     - docker build -t tp1-web:prueba -f aplicaciones-contenedores/web/Dockerfile aplicaciones-contenedores
     - echo "Imagen web construida correctamente"
+
+probar_docker:
+  stage: test
+  image: docker:27-cli
+  tags:
+    - devops-runner
+  script:
+    - echo "Comprobando acceso a Docker"
+    - docker info
