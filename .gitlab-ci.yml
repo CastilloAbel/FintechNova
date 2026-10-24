@@ -42,6 +42,8 @@ probar_docker:
   image: docker:27-cli
   tags:
     - devops-runner
+  variables:
+    DOCKER_HOST: "unix:///var/run/docker.sock"
   script:
-    - echo "Comprobando acceso a Docker"
+    - echo "Comprobando acceso al Docker del runner"
     - docker info
