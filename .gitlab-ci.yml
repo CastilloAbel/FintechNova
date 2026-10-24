@@ -1,0 +1,10 @@
+stages:
+  - test
+
+prueba_pipeline:
+  stage: test
+  tags:
+    - devops-runner
+  script:
+    - echo "Iniciando pipeline de FinTech Nova"
+    - echo "GitLab CI/CD funciona correctamente"
