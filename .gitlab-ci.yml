@@ -8,3 +8,13 @@ prueba_pipeline:
   script:
     - echo "Iniciando pipeline de FinTech Nova"
     - echo "GitLab CI/CD funciona correctamente"
+
+validar_compose:
+  stage: test
+  image: docker:27-cli
+  tags:
+    - devops-runner
+  script:
+    - echo "Validando docker-compose.yml"
+    - docker compose config --no-interpolate --quiet
+    - echo "Docker Compose validado correctamente"
