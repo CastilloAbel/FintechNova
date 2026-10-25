@@ -7,6 +7,7 @@ variables:
   DOCKER_NETWORK: proxy
   RUNNER_TAG: runner-without-dind
   DEPLOY_RUNNER_TAG: ssh-docker-alumnos01
+  IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
 
 prueba_pipeline:
   stage: test
@@ -34,8 +35,10 @@ build_web:
   script:
     - echo "Construyendo imagen de FinTech Nova Web"
     - docker info
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
     - docker build -t tp1-web:prueba -f aplicaciones-contenedores/web/Dockerfile aplicaciones-contenedores
     - echo "Imagen web construida correctamente"
+    - docker push "$CI_REGISTRY_IMAGE/tp1-web:$IMAGE_TAG"
 
 probar_docker:
   stage: test
