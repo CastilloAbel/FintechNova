@@ -30,24 +30,20 @@ build_web:
   image: docker:29.8.1-cli
   tags: [$RUNNER_TAG]
   script:
+    - test -n "$CI_REGISTRY" || { echo "CI_REGISTRY vacío"; exit 1; }
+    - test -n "$CI_PROJECT_PATH" || { echo "CI_PROJECT_PATH vacío"; exit 1; }
     - export IMAGE_REF="$CI_REGISTRY/$CI_PROJECT_PATH/tp1-web"
-    - echo "Registry configurado"
-    - echo "Repositorio: $CI_PROJECT_PATH"
-    - echo "Imagen: $IMAGE_REF:$IMAGE_TAG"
+    - echo "Construyendo $IMAGE_REF:$IMAGE_TAG"
     - docker info
     - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
-    - echo "Login correcto"
     - |
       docker build --pull \
         -t "$IMAGE_REF:$IMAGE_TAG" \
         -t "$IMAGE_REF:latest" \
         -f aplicaciones-contenedores/web/Dockerfile \
         aplicaciones-contenedores
-    - echo "Build correcto"
-    - docker image inspect "$IMAGE_REF:$IMAGE_TAG" >/dev/null
     - docker push "$IMAGE_REF:$IMAGE_TAG"
     - docker push "$IMAGE_REF:latest"
-    - echo "Push correcto"
 
 probar_docker:
   stage: test
