@@ -63,3 +63,15 @@ analizar_dockerfiles:
     - |
       find . -name Dockerfile -type f -exec hadolint --no-fail {} +
     - echo "Analisis de Dockerfiles finalizado"
+
+mostrar_referencia_imagen:
+  stage: build
+  image: alpine:3.21
+  tags: [$RUNNER_TAG]
+  script:
+    - printf '%s/%s/tp1-web:%s\n' "$CI_REGISTRY" "$CI_PROJECT_PATH" "$IMAGE_TAG" > image-reference.txt
+    - printf '%s/%s/tp1-web:latest\n' "$CI_REGISTRY" "$CI_PROJECT_PATH" >> image-reference.txt
+  artifacts:
+    paths:
+      - image-reference.txt
+    expire_in: 1 day
