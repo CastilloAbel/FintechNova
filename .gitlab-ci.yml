@@ -26,14 +26,11 @@ validar_compose:
 
 build_web:
   stage: build
-  image: docker:27-cli
+  image: docker:29.8.1-cli
   services:
-    - name: docker:27-dind
+    - name: docker:29.8.1-dind
       alias: docker
   tags: [$RUNNER_TAG]
-  variables:
-    DOCKER_HOST: tcp://docker:2375
-    DOCKER_TLS_CERTDIR: ""
   script:
     - echo "Construyendo imagen de FinTech Nova Web"
     - docker info
