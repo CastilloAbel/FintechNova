@@ -2,19 +2,23 @@ stages:
   - test
   - build
 
+variables:
+  ALUMNO: devops-grupo19
+  DOCKER_NETWORK: proxy
+  RUNNER_TAG: runner-without-dind
+  DEPLOY_RUNNER_TAG: ssh-docker-alumnos01
+
 prueba_pipeline:
   stage: test
-  tags:
-    - devops-runner
+  tags: [$RUNNER_TAG]
   script:
     - echo "Iniciando pipeline de FinTech Nova"
     - echo "GitLab CI/CD funciona correctamente"
 
 validar_compose:
   stage: test
-  image: docker:27-cli
-  tags:
-    - devops-runner
+  image: docker:29.8.1-cli
+  tags: [$RUNNER_TAG]
   script:
     - echo "Validando docker-compose.yml"
     - docker compose config --no-interpolate --quiet
@@ -26,8 +30,7 @@ build_web:
   services:
     - name: docker:27-dind
       alias: docker
-  tags:
-    - runner-without-dind
+  tags: [$RUNNER_TAG]
   variables:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
@@ -39,11 +42,9 @@ build_web:
 
 probar_docker:
   stage: test
-  image: docker:27-cli
-  tags:
-    - devops-runner
-  variables:
-    DOCKER_HOST: "unix:///var/run/docker.sock"
+  image: docker:29.8.1-cli
+  tags: [$RUNNER_TAG]
+
   script:
     - echo "Comprobando acceso al Docker del runner"
     - docker info
@@ -51,8 +52,7 @@ probar_docker:
 analizar_dockerfiles:
   stage: test
   image: hadolint/hadolint:latest-debian
-  tags:
-    - devops-runner
+  tags: [$RUNNER_TAG]
   script:
     - echo "Analizando Dockerfiles de FinTech Nova"
     - |
