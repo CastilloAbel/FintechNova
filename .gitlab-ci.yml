@@ -28,17 +28,18 @@ validar_compose:
 build_web:
   stage: build
   image: docker:29.8.1-cli
-  services:
-    - name: docker:29.8.1-dind
-      alias: docker
   tags: [$RUNNER_TAG]
   script:
-    - echo "Construyendo imagen de FinTech Nova Web"
-    - docker info
-    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
-    - docker build --pull -t "$CI_REGISTRY_IMAGE/tp1-web:$IMAGE_TAG" -f aplicaciones-contenedores/web/Dockerfile aplicaciones-contenedores
-    - echo "Imagen web construida correctamente"
-    - docker push "$CI_REGISTRY_IMAGE/tp1-web:$IMAGE_TAG"
+    - test -n "$CI_REGISTRY" || { echo "CI_REGISTRY vacío"; exit 1; }
+    - test -n "$CI_PROJECT_PATH" || { echo "CI_PROJECT_PATH vacío"; exit 1; }
+    - export IMAGE_REF="$CI_REGISTRY/$CI_PROJECT_PATH/tp1-web"
+    - docker build --pull \
+        -t "$IMAGE_REF:$IMAGE_TAG" \
+        -t "$IMAGE_REF:latest" \
+        -f aplicaciones-contenedores/web/Dockerfile \
+        aplicaciones-contenedores
+    - docker push "$IMAGE_REF:$IMAGE_TAG"
+    - docker push "$IMAGE_REF:latest"
 
 probar_docker:
   stage: test
