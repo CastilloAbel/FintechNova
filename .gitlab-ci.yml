@@ -36,7 +36,7 @@ build_web:
     - echo "Construyendo imagen de FinTech Nova Web"
     - docker info
     - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
-    - docker build -t tp1-web:prueba -f aplicaciones-contenedores/web/Dockerfile aplicaciones-contenedores
+    - docker build --pull -t "$CI_REGISTRY_IMAGE/tp1-web:$IMAGE_TAG" -f aplicaciones-contenedores/web/Dockerfile aplicaciones-contenedores
     - echo "Imagen web construida correctamente"
     - docker push "$CI_REGISTRY_IMAGE/tp1-web:$IMAGE_TAG"
 
