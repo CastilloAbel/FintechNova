@@ -73,6 +73,7 @@ probar_descarga_imagen:
   script:
     - echo "Iniciando sesion en GitLab Registry"
     - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
-    - echo "Descargando imagen de FinTech Nova"
-    - docker pull "$CI_REGISTRY_IMAGE/tp1-web:5dcfdc2b"
+    - export IMAGE_REF="$CI_REGISTRY/$CI_PROJECT_PATH/tp1-web"
+    - echo "Descargando imagen $IMAGE_REF:5dcfdc2b"
+    - docker pull "$IMAGE_REF:5dcfdc2b"
     - echo "Imagen descargada correctamente"
