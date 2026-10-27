@@ -25,25 +25,17 @@ validar_compose:
     - docker compose config --no-interpolate --quiet
     - echo "Docker Compose validado correctamente"
 
-build_web:
+build:
   stage: build
   image: docker:29.8.1-cli
   tags: [$RUNNER_TAG]
   script:
     - test -n "$CI_REGISTRY" || { echo "CI_REGISTRY vacío"; exit 1; }
     - test -n "$CI_PROJECT_PATH" || { echo "CI_PROJECT_PATH vacío"; exit 1; }
-    - export IMAGE_REF="$CI_REGISTRY/$CI_PROJECT_PATH/tp1-web"
-    - echo "Construyendo $IMAGE_REF:$IMAGE_TAG"
-    - docker info
+    - export IMAGE_REF="$CI_REGISTRY/$CI_PROJECT_PATH"
+    - echo "Construyendo y publicando imágenes en $IMAGE_REF"
     - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
-    - |
-      docker build --pull \
-        -t "$IMAGE_REF:$IMAGE_TAG" \
-        -t "$IMAGE_REF:latest" \
-        -f aplicaciones-contenedores/web/Dockerfile \
-        aplicaciones-contenedores
-    - docker push "$IMAGE_REF:$IMAGE_TAG"
-    - docker push "$IMAGE_REF:latest"
+    - bash build-ci.sh "$CI_REGISTRY" "$IMAGE_TAG" "$IMAGE_REF"
 
 probar_docker:
   stage: test
@@ -65,15 +57,3 @@ analizar_dockerfiles:
     - echo "Analisis de Dockerfiles finalizado"
 
 
-probar_descarga_imagen:
-  stage: test
-  image: docker:29.8.1-cli
-  tags:
-    - runner-without-dind
-  script:
-    - echo "Iniciando sesion en GitLab Registry"
-    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
-    - export IMAGE_REF="$CI_REGISTRY/$CI_PROJECT_PATH/tp1-web"
-    - echo "Descargando imagen $IMAGE_REF:5dcfdc2b"
-    - docker pull "$IMAGE_REF:5dcfdc2b"
-    - echo "Imagen descargada correctamente"
