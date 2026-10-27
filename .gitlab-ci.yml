@@ -74,7 +74,9 @@ sast:
 
 sca:
   stage: security
-  image: aquasec/trivy:latest
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
   tags: [$RUNNER_TAG]
   script:
     - test -n "$CI_REGISTRY" || { echo "CI_REGISTRY vacío"; exit 1; }
