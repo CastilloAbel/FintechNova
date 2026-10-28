@@ -25,18 +25,83 @@ validar_compose:
     - docker compose config --no-interpolate --quiet
     - echo "Docker Compose validado correctamente"
 
-build:
+.build_image:
   stage: build
   image: docker:29.8.1-cli
-  tags: [$RUNNER_TAG]
+  tags: [$BUILD_RUNNER_TAG]
   script:
     - test -n "$CI_REGISTRY" || { echo "CI_REGISTRY vacío"; exit 1; }
     - test -n "$CI_PROJECT_PATH" || { echo "CI_PROJECT_PATH vacío"; exit 1; }
-    - export IMAGE_REF="$CI_REGISTRY/$CI_PROJECT_PATH"
-    - echo "Construyendo y publicando imágenes en $IMAGE_REF"
+    - export IMAGE_REF="$CI_REGISTRY/$CI_PROJECT_PATH/$IMAGE_NAME"
+    - echo "Construyendo y publicando $IMAGE_REF:$IMAGE_TAG"
     - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
-    - apk add --no-cache bash
-    - bash build-ci.sh "$CI_REGISTRY" "$IMAGE_TAG" "$IMAGE_REF"
+    - docker build --pull --platform linux/amd64 -t "$IMAGE_REF:$IMAGE_TAG" -t "$IMAGE_REF:latest" -f "$DOCKERFILE" "$BUILD_CONTEXT"
+    - docker push "$IMAGE_REF:$IMAGE_TAG"
+    - docker push "$IMAGE_REF:latest"
+
+build_traefik:
+  extends: .build_image
+  variables:
+    BUILD_RUNNER_TAG: runner-without-dind
+    IMAGE_NAME: tp1-traefik
+    DOCKERFILE: traefik/Dockerfile
+    BUILD_CONTEXT: traefik
+
+build_db:
+  extends: .build_image
+  variables:
+    BUILD_RUNNER_TAG: runner-without-dind
+    IMAGE_NAME: tp1-db
+    DOCKERFILE: aplicaciones-contenedores/db/Dockerfile
+    BUILD_CONTEXT: aplicaciones-contenedores/db
+
+build_clientes:
+  extends: .build_image
+  variables:
+    BUILD_RUNNER_TAG: runner-without-dind
+    IMAGE_NAME: tp1-api-clientes
+    DOCKERFILE: aplicaciones-contenedores/api-clientes/Dockerfile
+    BUILD_CONTEXT: aplicaciones-contenedores/api-clientes
+
+build_pagos:
+  extends: .build_image
+  variables:
+    BUILD_RUNNER_TAG: runner-without-dind
+    IMAGE_NAME: tp1-api-pagos
+    DOCKERFILE: aplicaciones-contenedores/api-pagos/Dockerfile
+    BUILD_CONTEXT: aplicaciones-contenedores/api-pagos
+
+build_facturas:
+  extends: .build_image
+  variables:
+    BUILD_RUNNER_TAG: devops-runner
+    IMAGE_NAME: tp1-api-facturas
+    DOCKERFILE: aplicaciones-contenedores/api-facturas/Dockerfile
+    BUILD_CONTEXT: aplicaciones-contenedores
+
+build_tarjetas:
+  extends: .build_image
+  variables:
+    BUILD_RUNNER_TAG: devops-runner
+    IMAGE_NAME: tp1-api-tarjetas
+    DOCKERFILE: aplicaciones-contenedores/api-tarjetas/Dockerfile
+    BUILD_CONTEXT: aplicaciones-contenedores
+
+build_transacciones:
+  extends: .build_image
+  variables:
+    BUILD_RUNNER_TAG: devops-runner
+    IMAGE_NAME: tp1-api-transacciones
+    DOCKERFILE: aplicaciones-contenedores/api-transacciones/Dockerfile
+    BUILD_CONTEXT: aplicaciones-contenedores
+
+build_web:
+  extends: .build_image
+  variables:
+    BUILD_RUNNER_TAG: devops-runner
+    IMAGE_NAME: tp1-web
+    DOCKERFILE: aplicaciones-contenedores/web/Dockerfile
+    BUILD_CONTEXT: aplicaciones-contenedores
 
 probar_docker:
   stage: test
