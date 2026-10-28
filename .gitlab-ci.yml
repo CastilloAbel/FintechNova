@@ -2,6 +2,7 @@ stages:
   - test
   - build
   - deploy
+  - security
 
 variables:
   ALUMNO: devops-grupo19
@@ -124,7 +125,50 @@ analizar_dockerfiles:
       find . -name Dockerfile -type f -exec hadolint --no-fail {} +
     - echo "Analisis de Dockerfiles finalizado"
 
+sast:
+  stage: security
+  image: semgrep/semgrep:latest
+  tags: [$RUNNER_TAG]
+  script:
+    - semgrep --config auto --severity ERROR --json --output semgrep-report.json --error . || status=$?
+    - test -s semgrep-report.json
+    - exit "${status:-0}"
+  artifacts:
+    when: always
+    paths:
+      - semgrep-report.json
+    expire_in: 1 week
 
+sca:
+  stage: security
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  tags: [$RUNNER_TAG]
+  script:
+    - test -n "$CI_REGISTRY" || { echo "CI_REGISTRY vacío"; exit 1; }
+    - test -n "$CI_PROJECT_PATH" || { echo "CI_PROJECT_PATH vacío"; exit 1; }
+    - export IMAGE_REF="$CI_REGISTRY/$CI_PROJECT_PATH"
+    - export TRIVY_USERNAME="$CI_REGISTRY_USER"
+    - export TRIVY_PASSWORD="$CI_REGISTRY_PASSWORD"
+    - status=0
+    - |
+      for image in tp1-traefik tp1-db tp1-api-clientes tp1-api-pagos tp1-api-facturas tp1-api-tarjetas tp1-api-transacciones tp1-web; do
+        trivy image \
+          --username "$TRIVY_USERNAME" \
+          --password "$TRIVY_PASSWORD" \
+          --format json \
+          --output "trivy-report-$image.json" \
+          --exit-code 1 \
+          --severity HIGH,CRITICAL \
+          "$IMAGE_REF/$image:$IMAGE_TAG" || status=$?
+      done
+    - exit "$status"
+  artifacts:
+    when: always
+    paths:
+      - trivy-report-*.json
+    expire_in: 1 week
 
 probar_descarga_imagen:
   stage: test
