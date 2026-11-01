@@ -5,7 +5,7 @@ stages:
 variables:
   ALUMNO: devops-grupo19
   DOCKER_NETWORK: proxy
-  RUNNER_TAG: devops-runner
+  RUNNER_TAG: runner-without-dind
   BUILD_RUNNER_TAG: runner-without-dind
   DEPLOY_RUNNER_TAG: ssh-docker-alumnos01
   IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
