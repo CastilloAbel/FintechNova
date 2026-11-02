@@ -1,6 +1,7 @@
 stages:
   - test
   - build
+  - deploy
 
 variables:
   ALUMNO: devops-grupo19
@@ -138,3 +139,17 @@ probar_descarga_imagen:
     - echo "Descargando imagen $IMAGE_REF:5dcfdc2b"
     - docker pull "$IMAGE_REF:5dcfdc2b"
     - echo "Imagen descargada correctamente"
+
+
+deploy_aws:
+  stage: deploy
+  image: alpine:3.20
+  tags:
+    - runner-without-dind
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+  allow_failure: true
+  script:
+    - echo "Preparando despliegue de FinTech Nova en AWS"
+    - echo "El despliegue todavía no está habilitado"
