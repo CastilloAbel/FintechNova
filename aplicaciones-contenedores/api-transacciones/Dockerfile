@@ -11,10 +11,13 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-COPY --from=build /out/api-transacciones /api-transacciones
+COPY --from=build --chown=appuser:appgroup /out/api-transacciones /api-transacciones
 
 ENV PORT=8084
 EXPOSE 8084
+
+USER appuser
 
 ENTRYPOINT ["/api-transacciones"]

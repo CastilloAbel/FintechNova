@@ -1,8 +1,8 @@
 stages:
   - test
   - build
-  - deploy
   - security
+  - deploy
 
 variables:
   ALUMNO: devops-grupo19
@@ -20,7 +20,7 @@ prueba_pipeline:
     - echo "GitLab CI/CD funciona correctamente"
 
 validar_compose:
-  stage: test
+  stage: security
   image: docker:29.8.1-cli
   tags: [$RUNNER_TAG]
   script:
@@ -107,7 +107,7 @@ build_web:
     BUILD_CONTEXT: aplicaciones-contenedores
 
 probar_docker:
-  stage: test
+  stage: security
   image: docker:29.8.1-cli
   tags: [$RUNNER_TAG]
 
@@ -116,14 +116,33 @@ probar_docker:
     - docker info
 
 analizar_dockerfiles:
-  stage: test
+  stage: security
   image: hadolint/hadolint:latest-debian
   tags: [$RUNNER_TAG]
   script:
     - echo "Analizando Dockerfiles de FinTech Nova"
     - |
-      find . -name Dockerfile -type f -exec hadolint --no-fail {} +
+      dockerfiles=""
+      for dockerfile in \
+        traefik/Dockerfile \
+        aplicaciones-contenedores/db/Dockerfile \
+        aplicaciones-contenedores/api-clientes/Dockerfile \
+        aplicaciones-contenedores/api-pagos/Dockerfile \
+        aplicaciones-contenedores/api-facturas/Dockerfile \
+        aplicaciones-contenedores/api-tarjetas/Dockerfile \
+        aplicaciones-contenedores/api-transacciones/Dockerfile \
+        aplicaciones-contenedores/web/Dockerfile; do
+        test -f "$dockerfile" || { echo "Falta $dockerfile"; exit 1; }
+        dockerfiles="$dockerfiles $dockerfile"
+      done
+      hadolint $dockerfiles > hadolint-report.txt
+      cat hadolint-report.txt
     - echo "Analisis de Dockerfiles finalizado"
+  artifacts:
+    when: always
+    paths:
+      - hadolint-report.txt
+    expire_in: 1 week
 
 sast:
   stage: security
@@ -170,8 +189,35 @@ sca:
       - trivy-report-*.json
     expire_in: 1 week
 
+yamllint:
+  stage: security
+  image: cytopia/yamllint:latest
+  tags: [$RUNNER_TAG]
+  script:
+    - yamllint -d relaxed .gitlab-ci.yml docker-compose.yml traefik > yamllint-report.txt
+    - cat yamllint-report.txt
+  artifacts:
+    when: always
+    paths:
+      - yamllint-report.txt
+    expire_in: 1 week
+
+gitleaks:
+  stage: security
+  image:
+    name: zricethezav/gitleaks:latest
+    entrypoint: [""]
+  tags: [$RUNNER_TAG]
+  script:
+    - gitleaks detect --source . --redact --report-format json --report-path gitleaks-report.json
+  artifacts:
+    when: always
+    paths:
+      - gitleaks-report.json
+    expire_in: 1 week
+
 probar_descarga_imagen:
-  stage: test
+  stage: security
   image: docker:29.8.1-cli
   tags:
     - runner-without-dind
@@ -180,8 +226,8 @@ probar_descarga_imagen:
 
     - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
     - export IMAGE_REF="$CI_REGISTRY/$CI_PROJECT_PATH/tp1-web"
-    - echo "Descargando imagen $IMAGE_REF:5dcfdc2b"
-    - docker pull "$IMAGE_REF:5dcfdc2b"
+    - echo "Descargando imagen $IMAGE_REF:$IMAGE_TAG"
+    - docker pull "$IMAGE_REF:$IMAGE_TAG"
     - echo "Imagen descargada correctamente"
 
 

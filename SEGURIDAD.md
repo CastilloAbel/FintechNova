@@ -251,9 +251,9 @@ La clave se utiliza desde la PC únicamente para establecer conexiones `ssh` y c
 
 ---
 
-## 11. Imágenes Docker públicas
+## 11. Imágenes Docker en GitLab Container Registry
 
-Las imágenes del Trabajo Práctico se publican en Docker Hub para permitir que la instancia EC2 pueda descargarlas durante el despliegue.
+Las imágenes de la Parte 2 se publican en el Container Registry de GitLab del proyecto. Cada imagen utiliza el nombre del proyecto y se etiqueta con el commit que originó la construcción. También se publica `latest` para las pruebas, pero el despliegue debe preferir el tag específico del commit.
 
 Por este motivo las imágenes no deben contener:
 
@@ -264,6 +264,8 @@ Por este motivo las imágenes no deben contener:
 - certificados privados que no deban distribuirse.
 
 Los valores sensibles necesarios en tiempo de ejecución se proporcionan externamente.
+
+La autenticación del pipeline utiliza las variables automáticas `CI_REGISTRY_USER` y `CI_REGISTRY_PASSWORD`. Para descargar imágenes desde EC2 u otro equipo se utiliza un Deploy Token con permiso `read_registry`. Las credenciales no se escriben en el repositorio ni en las imágenes.
 
 ---
 
@@ -296,7 +298,29 @@ El despliegue separa las responsabilidades: la PC usa la PEM con `ssh`/`scp` par
 
 ---
 
-## 14. Resumen
+## 14. Seguridad integrada en GitLab CI/CD
+
+El pipeline ejecuta los controles en el stage `security`, después de construir y publicar las imágenes y antes del stage `deploy`:
+
+| Control | Herramienta | Alcance | Resultado |
+|---|---|---|---|
+| SAST | Semgrep | Código fuente, Dockerfiles, YAML y lenguajes de las APIs | Bloquea hallazgos `ERROR` y genera `semgrep-report.json`. |
+| Vulnerabilidades de imágenes | Trivy | Las ocho imágenes del commit | Bloquea vulnerabilidades `HIGH` y `CRITICAL`; genera un JSON por imagen. |
+| Dockerfiles | Hadolint | Los ocho Dockerfiles declarados explícitamente | Bloquea errores de buenas prácticas Docker. |
+| Linting YAML | Yamllint | CI, Compose y configuración de Traefik | Bloquea errores de sintaxis y formato YAML. |
+| Secretos | Gitleaks | Árbol del repositorio | Bloquea secretos detectados y genera un reporte. |
+
+Los reportes de Semgrep, Trivy, Hadolint, Yamllint y Gitleaks se conservan como artifacts del pipeline durante una semana. El despliegue no debe ejecutarse si un control bloqueante falla.
+
+El análisis detallado de los hallazgos está en [ANALISIS.md](ANALISIS.md). Los reportes JSON completos usados como evidencia se encuentran en `security/` cuando fueron generados localmente y también quedan disponibles como artifacts de los jobs.
+
+### Política ante vulnerabilidades
+
+Los hallazgos `HIGH` y `CRITICAL` de Trivy y los hallazgos `ERROR` de Semgrep detienen el pipeline. Primero se actualizan las imágenes base o dependencias y se reconstruyen las imágenes. Solo se puede aceptar un riesgo sin parche disponible si queda documentado con su impacto, justificación, medida compensatoria y responsable.
+
+Los secretos se gestionan mediante variables protegidas y enmascaradas de GitLab o mediante archivos privados suministrados durante el despliegue. Nunca se agregan tokens, contraseñas, claves PEM, claves TLS ni archivos `.env` al repositorio.
+
+## 15. Resumen
 
 La arquitectura aplica las siguientes medidas:
 
@@ -314,3 +338,4 @@ La arquitectura aplica las siguientes medidas:
 - SSH restringido por Security Group;
 - imágenes Docker sin credenciales;
 - archivos sensibles excluidos del repositorio.
+- análisis SAST, vulnerabilidades de imágenes, Dockerfiles, YAML y secretos integrados al pipeline.
