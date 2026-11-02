@@ -76,7 +76,7 @@ build_pagos:
 build_facturas:
   extends: .build_image
   variables:
-    BUILD_RUNNER_TAG: devops-runner
+    BUILD_RUNNER_TAG: runner-without-dind
     IMAGE_NAME: tp1-api-facturas
     DOCKERFILE: aplicaciones-contenedores/api-facturas/Dockerfile
     BUILD_CONTEXT: aplicaciones-contenedores
@@ -84,7 +84,7 @@ build_facturas:
 build_tarjetas:
   extends: .build_image
   variables:
-    BUILD_RUNNER_TAG: devops-runner
+    BUILD_RUNNER_TAG: runner-without-dind
     IMAGE_NAME: tp1-api-tarjetas
     DOCKERFILE: aplicaciones-contenedores/api-tarjetas/Dockerfile
     BUILD_CONTEXT: aplicaciones-contenedores
@@ -92,7 +92,7 @@ build_tarjetas:
 build_transacciones:
   extends: .build_image
   variables:
-    BUILD_RUNNER_TAG: devops-runner
+    BUILD_RUNNER_TAG: runner-without-dind
     IMAGE_NAME: tp1-api-transacciones
     DOCKERFILE: aplicaciones-contenedores/api-transacciones/Dockerfile
     BUILD_CONTEXT: aplicaciones-contenedores
@@ -100,7 +100,7 @@ build_transacciones:
 build_web:
   extends: .build_image
   variables:
-    BUILD_RUNNER_TAG: devops-runner
+    BUILD_RUNNER_TAG: runner-without-dind
     IMAGE_NAME: tp1-web
     DOCKERFILE: aplicaciones-contenedores/web/Dockerfile
     BUILD_CONTEXT: aplicaciones-contenedores
