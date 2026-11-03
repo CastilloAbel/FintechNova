@@ -1,4 +1,4 @@
-FROM golang:1.26-alpine3.22 AS build
+FROM golang:1.26.10-alpine3.24 AS build
 WORKDIR /src
 
 RUN apk upgrade --no-cache
@@ -10,7 +10,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -trimpath -ldflags="-s -w" \
     -o /out/api-transacciones .
 
-FROM alpine:3.22
+FROM alpine:3.24
 RUN apk upgrade --no-cache && apk add --no-cache ca-certificates
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
