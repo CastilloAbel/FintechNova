@@ -34,16 +34,16 @@ Estas correcciones reducen los privilegios de los procesos en runtime sin modifi
 
 El job `analizar_imagenes_trivy` escanea las ocho imágenes del commit. Se utiliza autenticación contra el Container Registry y se generan ocho reportes JSON como artifacts independientes.
 
-El resultado inicial de las imágenes mostró la siguiente distribución de vulnerabilidades `HIGH` y `CRITICAL`:
+La última ejecución analizada, anterior a reconstruir nuevamente las imágenes, mostró la siguiente distribución de vulnerabilidades `HIGH` y `CRITICAL`:
 
 | Imagen | HIGH | CRITICAL | Total |
 |---|---:|---:|---:|
 | `tp1-traefik` | 0 | 0 | 0 |
-| `tp1-db` | 44 | 1 | 45 |
+| `tp1-db` | 25 | 1 | 26 |
 | `tp1-api-clientes` | 26 | 3 | 29 |
 | `tp1-api-pagos` | 26 | 1 | 27 |
 | `tp1-api-facturas` | 30 | 8 | 38 |
-| `tp1-api-tarjetas` | 32 | 1 | 33 |
+| `tp1-api-tarjetas` | 0 | 0 | 0 |
 | `tp1-api-transacciones` | 25 | 1 | 26 |
 | `tp1-web` | 52 | 3 | 55 |
 
@@ -52,6 +52,20 @@ Los hallazgos provienen principalmente de paquetes de las imágenes base y de de
 El job descarga la base de vulnerabilidades de Trivy y, cuando corresponde, la base de Java. Estas bases se utilizan para identificar vulnerabilidades de sistema y de dependencias. El escaneo ignora vulnerabilidades sin versión corregida, pero mantiene el bloqueo para los casos `HIGH` y `CRITICAL` que sí tienen actualización disponible.
 
 El fallo del job ante vulnerabilidades corregibles es intencional: evita que una imagen con problemas conocidos llegue al despliegue. Los casos sin parche disponible no se ocultan; quedan reportados para su evaluación y eventual aceptación formal del riesgo.
+
+### Remediación aplicada
+
+Se actualizaron los orígenes y dependencias que correspondían a los hallazgos:
+
+- Alpine se actualizó a la línea `3.22` en las imágenes de Pagos, Transacciones y Web, y las capas Alpine ejecutan `apk upgrade` durante la construcción.
+- El runtime de Go pasó de 1.22 a 1.25 y el módulo fue actualizado a `go 1.25`.
+- Spring Boot pasó de 3.3.4 a 3.3.11, incorporando versiones corregidas de Spring, Jackson y Tomcat administradas por el parent.
+- Pagos regeneró su `package-lock.json`; su auditoría npm quedó sin vulnerabilidades.
+- Web pasó de Vite 5 a Vite 8.3.5 y `serve` se actualizó a 14.2.6. La auditoría de dependencias de producción quedó sin vulnerabilidades y el build se verificó con Vite 8.3.5.
+- Clientes actualizó PyMySQL a 1.1.1 y Werkzeug a 3.0.3.
+- MariaDB pasó de la etiqueta de parche fija a la línea 11.8 para recibir las actualizaciones de seguridad de la imagen oficial.
+
+La remediación se verificó localmente para Web, Pagos, Go y Python. La confirmación definitiva requiere reconstruir y publicar las ocho imágenes, ya que Trivy analiza las imágenes del registry y no los Dockerfiles directamente.
 
 ## Buenas prácticas de Dockerfiles: Hadolint
 
