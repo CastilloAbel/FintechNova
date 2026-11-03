@@ -188,7 +188,7 @@ analizar_archivos_yaml:
     entrypoint: [""]
   tags: [$RUNNER_TAG]
   script:
-    - yamllint -d "{extends: relaxed, rules: {line-length: disable}}" .gitlab-ci.yml docker-compose.yml traefik > yamllint-report.txt
+    - 'yamllint -d "{extends: relaxed, rules: {line-length: disable}}" .gitlab-ci.yml docker-compose.yml traefik > yamllint-report.txt'
     - cat yamllint-report.txt
   artifacts:
     when: always
