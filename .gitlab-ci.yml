@@ -106,15 +106,6 @@ build_web:
     DOCKERFILE: aplicaciones-contenedores/web/Dockerfile
     BUILD_CONTEXT: aplicaciones-contenedores
 
-probar_docker:
-  stage: security
-  image: docker:29.8.1-cli
-  tags: [$RUNNER_TAG]
-
-  script:
-    - echo "Comprobando acceso al Docker del runner"
-    - docker info
-
 analizar_dockerfiles:
   stage: security
   image: hadolint/hadolint:latest-debian
@@ -144,7 +135,7 @@ analizar_dockerfiles:
       - hadolint-report.txt
     expire_in: 1 week
 
-sast:
+analizar_codigo_semgrep:
   stage: security
   image: semgrep/semgrep:latest
   tags: [$RUNNER_TAG]
@@ -158,7 +149,7 @@ sast:
       - semgrep-report.json
     expire_in: 1 week
 
-sca:
+analizar_imagenes_trivy:
   stage: security
   image:
     name: aquasec/trivy:latest
@@ -189,9 +180,11 @@ sca:
       - trivy-report-*.json
     expire_in: 1 week
 
-yamllint:
+analizar_archivos_yaml:
   stage: security
-  image: cytopia/yamllint:latest
+  image:
+    name: cytopia/yamllint:latest
+    entrypoint: [""]
   tags: [$RUNNER_TAG]
   script:
     - yamllint -d relaxed .gitlab-ci.yml docker-compose.yml traefik > yamllint-report.txt
@@ -202,7 +195,7 @@ yamllint:
       - yamllint-report.txt
     expire_in: 1 week
 
-gitleaks:
+detectar_secretos:
   stage: security
   image:
     name: zricethezav/gitleaks:latest
@@ -215,21 +208,6 @@ gitleaks:
     paths:
       - gitleaks-report.json
     expire_in: 1 week
-
-probar_descarga_imagen:
-  stage: security
-  image: docker:29.8.1-cli
-  tags:
-    - runner-without-dind
-  script:
-    - echo "Iniciando sesion en GitLab Registry"
-
-    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
-    - export IMAGE_REF="$CI_REGISTRY/$CI_PROJECT_PATH/tp1-web"
-    - echo "Descargando imagen $IMAGE_REF:$IMAGE_TAG"
-    - docker pull "$IMAGE_REF:$IMAGE_TAG"
-    - echo "Imagen descargada correctamente"
-
 
 deploy_aws:
   stage: deploy

@@ -5,7 +5,7 @@ WORKDIR /app
 COPY web/package*.json ./
 RUN npm ci
 
-COPY web . .
+COPY web/ .
 RUN npm run build
 
 # Servidor estático de producción; Traefik hará el enrutamiento y terminará TLS.
