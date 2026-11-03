@@ -158,3 +158,6 @@ deploy_aws:
     - test -n "$AWS_SSH_PRIVATE_KEY"
     - chmod 600 "$AWS_SSH_PRIVATE_KEY"
     - echo "Variables de conexión AWS configuradas"
+    - apk add --no-cache curl
+    - 'echo "IP publica del runner:"'
+    - curl -4 -sS https://api.ipify.org
