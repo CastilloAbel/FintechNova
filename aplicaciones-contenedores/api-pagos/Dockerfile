@@ -6,7 +6,7 @@ RUN apk upgrade --no-cache
 COPY package.json package-lock.json ./
 
 RUN npm ci --omit=dev \
-	&& npm install --global npm@latest \
+	&& npm install --global npm@10.8.2 \
 	&& npm cache clean --force
 
 COPY --chown=node:node src/ ./src/
