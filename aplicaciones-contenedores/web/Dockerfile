@@ -14,7 +14,7 @@ FROM node:24-alpine3.22 AS runtime
 WORKDIR /app
     
 RUN apk upgrade --no-cache \
-    && npm install --global serve@14.2.6 \
+    && npm install --global npm@latest serve@14.2.6 \
     && npm cache clean --force
 
 COPY --from=build --chown=node:node /app/dist ./dist

@@ -64,8 +64,11 @@ Se actualizaron los orígenes y dependencias que correspondían a los hallazgos:
 - Web pasó de Vite 5 a Vite 8.3.5 y `serve` se actualizó a 14.2.6. La auditoría de dependencias de producción quedó sin vulnerabilidades y el build se verificó con Vite 8.3.5.
 - Clientes actualizó PyMySQL a 1.1.1 y Werkzeug a 3.0.3.
 - MariaDB pasó de la etiqueta de parche fija a la línea 11.8 para recibir las actualizaciones de seguridad de la imagen oficial.
+- En una segunda ejecución, Clientes, Tarjetas y Traefik quedaron sin hallazgos `HIGH` o `CRITICAL`. Los resultados restantes se redujeron en Web, Pagos y Transacciones después de actualizar bases y dependencias.
+- Facturas todavía requiere validar el salto a Spring Boot 3.5.14, que incorpora versiones corregidas de Spring, Jackson y Tomcat.
+- El hallazgo restante de MariaDB aparece en `/usr/local/bin/gosu`, un binario auxiliar provisto por la imagen oficial. No corresponde al código de FinTech Nova ni puede corregirse desde los scripts SQL; depende de una nueva versión de la imagen que actualice ese binario.
 
-La remediación se verificó localmente para Web, Pagos, Go y Python. La confirmación definitiva requiere reconstruir y publicar las ocho imágenes, ya que Trivy analiza las imágenes del registry y no los Dockerfiles directamente.
+La remediación se verificó localmente para Web, Pagos, Go y Python. La confirmación definitiva requiere reconstruir y publicar las ocho imágenes, ya que Trivy analiza las imágenes del registry y no los Dockerfiles directamente. Si MariaDB continúa reportando `gosu` sin una imagen upstream corregida, el equipo debe registrar esa limitación como riesgo aceptado y justificarla explícitamente.
 
 ## Buenas prácticas de Dockerfiles: Hadolint
 
