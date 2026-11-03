@@ -305,7 +305,7 @@ El pipeline ejecuta los controles en el stage `security`, después de construir 
 | Control | Herramienta | Alcance | Resultado |
 |---|---|---|---|
 | `analizar_codigo_semgrep` | Semgrep | Código fuente, Dockerfiles, YAML y lenguajes de las APIs | Bloquea hallazgos `ERROR` y genera `semgrep-report.json`. |
-| `analizar_imagenes_trivy` | Trivy | Las ocho imágenes del commit | Bloquea vulnerabilidades `HIGH` y `CRITICAL`; genera un JSON por imagen. |
+| `analizar_imagenes_trivy` | Trivy | Las ocho imágenes del commit | Bloquea vulnerabilidades corregibles `HIGH` y `CRITICAL`; genera un JSON por imagen. |
 | `analizar_dockerfiles` | Hadolint | Los ocho Dockerfiles declarados explícitamente | Bloquea errores de buenas prácticas Docker. |
 | `analizar_archivos_yaml` | Yamllint | CI, Compose y configuración de Traefik | Bloquea errores de sintaxis y formato YAML. |
 | `detectar_secretos` | Gitleaks | Árbol del repositorio | Bloquea secretos detectados y genera un reporte. |
@@ -314,11 +314,11 @@ Los reportes de Semgrep, Trivy, Hadolint, Yamllint y Gitleaks se conservan como 
 
 Se retiraron `probar_docker` y `probar_descarga_imagen` porque eran pruebas auxiliares del runner y del registry, no controles de seguridad del producto. La autenticación y la descarga de imágenes siguen cubiertas por el propio escaneo de Trivy.
 
-El análisis detallado de los hallazgos está en [ANALISIS.md](ANALISIS.md). Los reportes JSON completos usados como evidencia se encuentran en `security/` cuando fueron generados localmente y también quedan disponibles como artifacts de los jobs.
+El análisis detallado de los hallazgos está en [ANALISIS.md](ANALISIS.md). Los reportes JSON y de texto no se versionan: se conservan como artifacts descargables de los jobs correspondientes.
 
 ### Política ante vulnerabilidades
 
-Los hallazgos `HIGH` y `CRITICAL` de Trivy y los hallazgos `ERROR` de Semgrep detienen el pipeline. Primero se actualizan las imágenes base o dependencias y se reconstruyen las imágenes. Solo se puede aceptar un riesgo sin parche disponible si queda documentado con su impacto, justificación, medida compensatoria y responsable.
+Los hallazgos corregibles `HIGH` y `CRITICAL` de Trivy y los hallazgos `ERROR` de Semgrep detienen el pipeline. Trivy ignora únicamente vulnerabilidades sin versión corregida, que quedan informadas para su evaluación. Primero se actualizan las imágenes base o dependencias y se reconstruyen las imágenes. Solo se puede aceptar un riesgo sin parche disponible si queda documentado con su impacto, justificación, medida compensatoria y responsable.
 
 Los secretos se gestionan mediante variables protegidas y enmascaradas de GitLab o mediante archivos privados suministrados durante el despliegue. Nunca se agregan tokens, contraseñas, claves PEM, claves TLS ni archivos `.env` al repositorio.
 
