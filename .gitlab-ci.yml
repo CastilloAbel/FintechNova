@@ -148,12 +148,17 @@ deploy_aws:
   tags:
     - runner-without-dind
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "feature/deploy-aws"'
       when: manual
   allow_failure: true
 
   before_script:
-    - apk add --no-cache openssh-client
+    - apk add --no-cache openssh-client openssl apache2-utils python3
+    - test -n "$DB_USER"
+    - test -n "$DB_PASSWORD"
+    - test -n "$MYSQL_ROOT_PASSWORD"
+    - test -n "$DASHBOARD_USER"
+    - test -n "$DASHBOARD_PASSWORD"
     - test -n "$AWS_EC2_HOST"
     - test -n "$AWS_EC2_USER"
     - test -s "$AWS_SSH_PRIVATE_KEY"
@@ -219,3 +224,91 @@ deploy_aws:
         "sudo docker image ls"
 
       echo "Las 8 imagenes fueron transferidas a EC2"
+      echo "Preparando directorio de despliegue..."
+      ssh -i "$AWS_SSH_PRIVATE_KEY" \
+        "$AWS_EC2_USER@$AWS_EC2_HOST" \
+        "mkdir -p ~/fintech-nova/certs ~/fintech-nova/secrets"
+
+      echo "Copiando archivos de despliegue..."
+      scp -i "$AWS_SSH_PRIVATE_KEY" \
+        docker-compose.yml deploy.sh \
+        "$AWS_EC2_USER@$AWS_EC2_HOST:~/fintech-nova/"
+
+      echo "Preparando variables de entorno..."
+      export DOCKER_USER="$CI_REGISTRY/$CI_PROJECT_PATH"
+      export DOMAIN="$AWS_EC2_HOST"
+      export DB_HOST="tp1-db"
+      export DB_PORT="3306"
+      export MYSQL_DATABASE="fintech_nova"
+      export DB_NAME_CLIENTES="db_clientes"
+      export DB_NAME_PAGOS="db_pagos"
+      export DB_NAME_FACTURAS="db_facturas"
+      export DB_NAME_TARJETAS="db_tarjetas"
+      export DB_NAME_TRANSACCIONES="db_transacciones"
+
+      python3 - <<'PY' > deployment.env
+      import os
+
+      keys = [
+          "DOCKER_USER", "IMAGE_TAG", "DOMAIN",
+          "DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD",
+          "MYSQL_ROOT_PASSWORD", "MYSQL_DATABASE",
+          "DB_NAME_CLIENTES", "DB_NAME_PAGOS",
+          "DB_NAME_FACTURAS", "DB_NAME_TARJETAS",
+          "DB_NAME_TRANSACCIONES", "IPAPI_TOKEN"
+      ]
+
+      defaults = {
+          "DB_HOST": "tp1-db",
+          "DB_PORT": "3306",
+          "MYSQL_DATABASE": "fintech_nova",
+          "DB_NAME_CLIENTES": "db_clientes",
+          "DB_NAME_PAGOS": "db_pagos",
+          "DB_NAME_FACTURAS": "db_facturas",
+          "DB_NAME_TARJETAS": "db_tarjetas",
+          "DB_NAME_TRANSACCIONES": "db_transacciones"
+      }
+
+      for key in keys:
+          value = os.environ.get(key, defaults.get(key, ""))
+          if "\n" in value or "\r" in value:
+              raise ValueError(f"Valor invalido para {key}")
+          print(f"{key}={value}")
+      PY
+
+      chmod 600 deployment.env
+
+      scp -i "$AWS_SSH_PRIVATE_KEY" \
+        deployment.env \
+        "$AWS_EC2_USER@$AWS_EC2_HOST:~/fintech-nova/.env"
+
+      rm -f deployment.env
+
+      echo "Preparando autenticacion del dashboard..."
+      printf '%s\n' "$DASHBOARD_PASSWORD" |
+        htpasswd -B -i -c dashboard_users "$DASHBOARD_USER"
+
+      scp -i "$AWS_SSH_PRIVATE_KEY" \
+        dashboard_users \
+        "$AWS_EC2_USER@$AWS_EC2_HOST:~/fintech-nova/secrets/dashboard_users"
+
+      rm -f dashboard_users
+
+      echo "Generando certificado HTTPS..."
+      openssl req -x509 -nodes -newkey rsa:2048 \
+        -keyout local.key \
+        -out local.crt \
+        -days 365 \
+        -subj "/CN=$AWS_EC2_HOST" \
+        -addext "subjectAltName=IP:$AWS_EC2_HOST"
+
+      scp -i "$AWS_SSH_PRIVATE_KEY" \
+        local.crt local.key \
+        "$AWS_EC2_USER@$AWS_EC2_HOST:~/fintech-nova/certs/"
+
+      rm -f local.crt local.key
+
+      echo "Iniciando contenedores en AWS..."
+      ssh -i "$AWS_SSH_PRIVATE_KEY" \
+        "$AWS_EC2_USER@$AWS_EC2_HOST" \
+        "cd ~/fintech-nova && chmod 600 .env certs/local.key secrets/dashboard_users && chmod +x deploy.sh && ./deploy.sh"
