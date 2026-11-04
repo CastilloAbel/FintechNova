@@ -167,3 +167,5 @@ deploy_aws:
     - nc -vz -w 10 "$AWS_EC2_HOST" 22
     - chmod 600 ~/.ssh/known_hosts
     - ssh -o BatchMode=yes -o ConnectTimeout=10 -i "$AWS_SSH_PRIVATE_KEY" "$AWS_EC2_USER@$AWS_EC2_HOST" "echo 'Conexion SSH exitosa'"
+    - 'echo "Probando SSH hacia GitLab..."'
+    - nc -vz -w 10 gitlab.com 22
