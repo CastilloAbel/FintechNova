@@ -150,27 +150,50 @@ deploy_aws:
     - if: '$CI_COMMIT_BRANCH == "main"'
       when: manual
   allow_failure: true
+
   before_script:
-    - apk add --no-cache openssh-client
+    - apk add --no-cache openssh-client curl netcat-openbsd
+
   script:
     - test -n "$AWS_EC2_HOST"
     - test -n "$AWS_EC2_USER"
-    - test -n "$AWS_SSH_PRIVATE_KEY"
+    - test -s "$AWS_SSH_PRIVATE_KEY"
+    - test -n "$CI_REGISTRY"
+    - test -n "$CI_REGISTRY_USER"
+    - test -n "$CI_REGISTRY_PASSWORD"
     - chmod 600 "$AWS_SSH_PRIVATE_KEY"
+
     - echo "Variables de conexión AWS configuradas"
-    - apk add --no-cache curl netcat-openbsd
     - 'echo "IP publica del runner:"'
     - curl -4 -sS https://api.ipify.org
     - 'echo ""'
+
     - 'echo "Probando conexión SSH con AWS..."'
-    - 'nc -vz -w 10 "$AWS_EC2_HOST" 22 || true'
-    - 'echo "Probando conexión SSH con GitLab..."'
-    - 'nc -vz -w 10 gitlab.com 22 || true'
+    - nc -vz -w 10 "$AWS_EC2_HOST" 22
+
     - mkdir -p ~/.ssh
     - chmod 700 ~/.ssh
     - ssh-keyscan -T 10 -H "$AWS_EC2_HOST" > ~/.ssh/known_hosts
     - chmod 600 ~/.ssh/known_hosts
-    - ssh -o BatchMode=yes -o ConnectTimeout=10 -i "$AWS_SSH_PRIVATE_KEY" "$AWS_EC2_USER@$AWS_EC2_HOST" "echo 'Conexion SSH exitosa'"
-    - 'echo "Registry: $CI_REGISTRY"'
-    - 'echo "Proyecto: $CI_PROJECT_PATH"'
-    - 'echo "Imagen web: $CI_REGISTRY/$CI_PROJECT_PATH/tp1-web:latest"'
+
+    - |
+      ssh -o BatchMode=yes -o ConnectTimeout=10 \
+        -i "$AWS_SSH_PRIVATE_KEY" \
+        "$AWS_EC2_USER@$AWS_EC2_HOST" \
+        "echo 'Conexion SSH exitosa'"
+
+    - 'echo "Probando descarga de imagen Docker desde EC2..."'
+
+    - |
+      printf '%s' "$CI_REGISTRY_PASSWORD" |
+        ssh -o BatchMode=yes -o ConnectTimeout=10 \
+          -i "$AWS_SSH_PRIVATE_KEY" \
+          "$AWS_EC2_USER@$AWS_EC2_HOST" \
+          "REGISTRY='$CI_REGISTRY' REGISTRY_USER='$CI_REGISTRY_USER' IMAGE='$CI_REGISTRY/$CI_PROJECT_PATH/tp1-web:latest' bash -c '
+            set -e
+            export DOCKER_CONFIG=\$(mktemp -d)
+            trap \"rm -rf \\\$DOCKER_CONFIG\" EXIT
+            docker login \"\$REGISTRY\" -u \"\$REGISTRY_USER\" --password-stdin
+            docker pull \"\$IMAGE\"
+            echo \"Imagen descargada correctamente en EC2\"
+          '"
