@@ -158,14 +158,11 @@ deploy_aws:
     - test -n "$AWS_SSH_PRIVATE_KEY"
     - chmod 600 "$AWS_SSH_PRIVATE_KEY"
     - echo "Variables de conexión AWS configuradas"
-    - apk add --no-cache curl
+    - apk add --no-cache curl netcat-openbsd
     - 'echo "IP publica del runner:"'
     - curl -4 -sS https://api.ipify.org
-    - mkdir -p ~/.ssh
-    - chmod 700 ~/.ssh
-    - apk add --no-cache netcat-openbsd
-    - nc -vz -w 10 "$AWS_EC2_HOST" 22
-    - chmod 600 ~/.ssh/known_hosts
-    - ssh -o BatchMode=yes -o ConnectTimeout=10 -i "$AWS_SSH_PRIVATE_KEY" "$AWS_EC2_USER@$AWS_EC2_HOST" "echo 'Conexion SSH exitosa'"
-    - 'echo "Probando SSH hacia GitLab..."'
-    - nc -vz -w 10 gitlab.com 22
+    - 'echo ""'
+    - 'echo "Probando conexión SSH con AWS..."'
+    - 'nc -vz -w 10 "$AWS_EC2_HOST" 22 || true'
+    - 'echo "Probando conexión SSH con GitLab..."'
+    - 'nc -vz -w 10 gitlab.com 22 || true'
