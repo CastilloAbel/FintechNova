@@ -47,8 +47,10 @@ images=$(dc config --images)
 [[ $(grep -c . <<< "$images") -eq 8 ]] || fail 'Se esperaban 8 imágenes configuradas.'
 grep -qE '^/|:$' <<< "$images" && fail 'Completa DOCKER_USER e IMAGE_TAG en .env.'
 
-dc pull
-dc up -d
+# Las imágenes ya fueron transferidas desde GitLab mediante SSH.
+# EC2 no necesita acceder al Container Registry.
+
+dc up -d --no-build --pull never
 dc ps
 
 running=$(dc ps --status running --quiet | awk 'END { print NR }')
