@@ -171,3 +171,6 @@ deploy_aws:
     - ssh-keyscan -T 10 -H "$AWS_EC2_HOST" > ~/.ssh/known_hosts
     - chmod 600 ~/.ssh/known_hosts
     - ssh -o BatchMode=yes -o ConnectTimeout=10 -i "$AWS_SSH_PRIVATE_KEY" "$AWS_EC2_USER@$AWS_EC2_HOST" "echo 'Conexion SSH exitosa'"
+    - 'echo "Registry: $CI_REGISTRY"'
+    - 'echo "Proyecto: $CI_PROJECT_PATH"'
+    - 'echo "Imagen web: $CI_REGISTRY/$CI_PROJECT_PATH/tp1-web:latest"'
