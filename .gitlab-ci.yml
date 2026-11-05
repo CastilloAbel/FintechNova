@@ -1,6 +1,7 @@
 stages:
   - test
   - build
+  - security
   - deploy
 
 variables:
@@ -19,7 +20,7 @@ prueba_pipeline:
     - echo "GitLab CI/CD funciona correctamente"
 
 validar_compose:
-  stage: test
+  stage: security
   image: docker:29.8.1-cli
   tags: [$RUNNER_TAG]
   script:
@@ -105,42 +106,109 @@ build_web:
     DOCKERFILE: aplicaciones-contenedores/web/Dockerfile
     BUILD_CONTEXT: aplicaciones-contenedores
 
-probar_docker:
-  stage: test
-  image: docker:29.8.1-cli
-  tags: [$RUNNER_TAG]
-
-  script:
-    - echo "Comprobando acceso al Docker del runner"
-    - docker info
-
 analizar_dockerfiles:
-  stage: test
+  stage: security
   image: hadolint/hadolint:latest-debian
   tags: [$RUNNER_TAG]
   script:
     - echo "Analizando Dockerfiles de FinTech Nova"
     - |
-      find . -name Dockerfile -type f -exec hadolint --no-fail {} +
+      dockerfiles=""
+      for dockerfile in \
+        traefik/Dockerfile \
+        aplicaciones-contenedores/db/Dockerfile \
+        aplicaciones-contenedores/api-clientes/Dockerfile \
+        aplicaciones-contenedores/api-pagos/Dockerfile \
+        aplicaciones-contenedores/api-facturas/Dockerfile \
+        aplicaciones-contenedores/api-tarjetas/Dockerfile \
+        aplicaciones-contenedores/api-transacciones/Dockerfile \
+        aplicaciones-contenedores/web/Dockerfile; do
+        test -f "$dockerfile" || { echo "Falta $dockerfile"; exit 1; }
+        dockerfiles="$dockerfiles $dockerfile"
+      done
+      hadolint --failure-threshold error $dockerfiles > hadolint-report.txt
+      cat hadolint-report.txt
     - echo "Analisis de Dockerfiles finalizado"
+  artifacts:
+    when: always
+    paths:
+      - hadolint-report.txt
+    expire_in: 1 week
 
-
-
-probar_descarga_imagen:
-  stage: test
-  image: docker:29.8.1-cli
-  tags:
-    - runner-without-dind
+analizar_codigo_semgrep:
+  stage: security
+  image: semgrep/semgrep:latest
+  tags: [$RUNNER_TAG]
   script:
-    - echo "Iniciando sesion en GitLab Registry"
+    - semgrep --config auto --severity ERROR --json --output semgrep-report.json --error . || status=$?
+    - test -s semgrep-report.json
+    - exit "${status:-0}"
+  artifacts:
+    when: always
+    paths:
+      - semgrep-report.json
+    expire_in: 1 week
 
-    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
-    - export IMAGE_REF="$CI_REGISTRY/$CI_PROJECT_PATH/tp1-web"
-    - echo "Descargando imagen $IMAGE_REF:5dcfdc2b"
-    - docker pull "$IMAGE_REF:5dcfdc2b"
-    - echo "Imagen descargada correctamente"
+analizar_imagenes_trivy:
+  stage: security
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  tags: [$RUNNER_TAG]
+  script:
+    - test -n "$CI_REGISTRY" || { echo "CI_REGISTRY vacío"; exit 1; }
+    - test -n "$CI_PROJECT_PATH" || { echo "CI_PROJECT_PATH vacío"; exit 1; }
+    - export IMAGE_REF="$CI_REGISTRY/$CI_PROJECT_PATH"
+    - export TRIVY_USERNAME="$CI_REGISTRY_USER"
+    - export TRIVY_PASSWORD="$CI_REGISTRY_PASSWORD"
+    - status=0
+    - |
+      for image in tp1-traefik tp1-db tp1-api-clientes tp1-api-pagos tp1-api-facturas tp1-api-tarjetas tp1-api-transacciones tp1-web; do
+        trivy image \
+          --username "$TRIVY_USERNAME" \
+          --password "$TRIVY_PASSWORD" \
+          --format json \
+          --output "trivy-report-$image.json" \
+          --exit-code 1 \
+          --ignore-unfixed \
+          --severity HIGH,CRITICAL \
+          "$IMAGE_REF/$image:$IMAGE_TAG" || status=$?
+      done
+    - exit "$status"
+  artifacts:
+    when: always
+    paths:
+      - trivy-report-*.json
+    expire_in: 1 week
 
+analizar_archivos_yaml:
+  stage: security
+  image:
+    name: cytopia/yamllint:latest
+    entrypoint: [""]
+  tags: [$RUNNER_TAG]
+  script:
+    - 'yamllint -d "{extends: relaxed, rules: {line-length: disable}}" .gitlab-ci.yml docker-compose.yml traefik > yamllint-report.txt'
+    - cat yamllint-report.txt
+  artifacts:
+    when: always
+    paths:
+      - yamllint-report.txt
+    expire_in: 1 week
 
+detectar_secretos:
+  stage: security
+  image:
+    name: zricethezav/gitleaks:latest
+    entrypoint: [""]
+  tags: [$RUNNER_TAG]
+  script:
+    - gitleaks detect --source . --redact --report-format json --report-path gitleaks-report.json
+  artifacts:
+    when: always
+    paths:
+      - gitleaks-report.json
+    expire_in: 1 week
 
 deploy_aws:
   stage: deploy
