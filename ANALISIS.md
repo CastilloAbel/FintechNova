@@ -34,18 +34,20 @@ Estas correcciones reducen los privilegios de los procesos en runtime sin modifi
 
 El job `analizar_imagenes_trivy` escanea las ocho imágenes del commit. Se utiliza autenticación contra el Container Registry y se generan ocho reportes JSON como artifacts independientes.
 
-La última ejecución analizada, anterior a reconstruir nuevamente las imágenes, mostró la siguiente distribución de vulnerabilidades `HIGH` y `CRITICAL`:
+Los JSON que quedaron descargados localmente corresponden a una ejecución anterior a las remediaciones finales: fueron generados el 3 de noviembre de 2026 y analizan las etiquetas `7d91e0d1`. Sirven como línea base, pero no representan las imágenes publicadas por el pipeline final. Esa línea base contenía:
 
 | Imagen | HIGH | CRITICAL | Total |
 |---|---:|---:|---:|
 | `tp1-traefik` | 0 | 0 | 0 |
 | `tp1-db` | 25 | 1 | 26 |
-| `tp1-api-clientes` | 26 | 3 | 29 |
-| `tp1-api-pagos` | 26 | 1 | 27 |
-| `tp1-api-facturas` | 30 | 8 | 38 |
+| `tp1-api-clientes` | 0 | 0 | 0 |
+| `tp1-api-pagos` | 3 | 0 | 3 |
+| `tp1-api-facturas` | 5 | 6 | 11 |
 | `tp1-api-tarjetas` | 0 | 0 | 0 |
-| `tp1-api-transacciones` | 25 | 1 | 26 |
-| `tp1-web` | 52 | 3 | 55 |
+| `tp1-api-transacciones` | 0 | 0 | 0 |
+| `tp1-web` | 4 | 0 | 4 |
+
+La tabla es histórica, no el resultado final. En la ejecución más reciente, posterior a la reconstrucción y publicación de las imágenes corregidas, el pipeline completo terminó correctamente. El job Trivy está configurado para fallar ante vulnerabilidades `HIGH` o `CRITICAL` con corrección disponible (`--ignore-unfixed`); por lo tanto, el resultado verde confirma que no quedaron hallazgos bloqueantes de ese tipo en las imágenes escaneadas. No se asignan conteos exactos de la última ejecución aquí porque sus JSON/artifacts no están descargados en este checkout.
 
 Los hallazgos provienen principalmente de paquetes de las imágenes base y de dependencias de aplicación: Alpine, Red Hat, Ubuntu, Debian, OpenSSL, Go `stdlib`, paquetes Python y Node.js, dependencias Java de Jackson y componentes del runtime .NET.
 
@@ -53,22 +55,21 @@ El job descarga la base de vulnerabilidades de Trivy y, cuando corresponde, la b
 
 El fallo del job ante vulnerabilidades corregibles es intencional: evita que una imagen con problemas conocidos llegue al despliegue. Los casos sin parche disponible no se ocultan; quedan reportados para su evaluación y eventual aceptación formal del riesgo.
 
-### Remediación aplicada
+Para revisar localmente artifacts descargados, `find-vulnerabilities.ps1` lee los JSON `security/trivy/trivy-report-*.json` y muestra severidad, CVE, paquete, versión instalada y versión corregida. Es una ayuda de lectura: no cambia los reportes ni reemplaza el escaneo automático del pipeline; requiere `jq.exe` disponible en PATH.
 
-Se actualizaron los orígenes y dependencias que correspondían a los hallazgos:
+### Remediaciones finales y decisiones
 
-- Alpine se actualizó a la línea `3.22` en las imágenes de Pagos, Transacciones y Web, y las capas Alpine ejecutan `apk upgrade` durante la construcción.
-- El runtime de Go pasó de 1.22 a 1.25 y el módulo fue actualizado a `go 1.25`.
-- Spring Boot pasó de 3.3.4 a 3.3.11, incorporando versiones corregidas de Spring, Jackson y Tomcat administradas por el parent.
-- Pagos regeneró su `package-lock.json`; su auditoría npm quedó sin vulnerabilidades.
-- Web pasó de Vite 5 a Vite 8.3.5 y `serve` se actualizó a 14.2.6. La auditoría de dependencias de producción quedó sin vulnerabilidades y el build se verificó con Vite 8.3.5.
-- Clientes actualizó PyMySQL a 1.1.1 y Werkzeug a 3.0.3.
-- MariaDB pasó de la etiqueta de parche fija a la línea 11.8 para recibir las actualizaciones de seguridad de la imagen oficial.
-- En una segunda ejecución, Clientes, Tarjetas y Traefik quedaron sin hallazgos `HIGH` o `CRITICAL`. Los resultados restantes se redujeron en Web, Pagos y Transacciones después de actualizar bases y dependencias.
-- Facturas todavía requiere validar el salto a Spring Boot 3.5.14, que incorpora versiones corregidas de Spring, Jackson y Tomcat.
-- El hallazgo restante de MariaDB aparece en `/usr/local/bin/gosu`, un binario auxiliar provisto por la imagen oficial. No corresponde al código de FinTech Nova ni puede corregirse desde los scripts SQL; depende de una nueva versión de la imagen que actualice ese binario.
+Las vulnerabilidades se corrigieron en las entradas que llegan a las imágenes, no ocultando los hallazgos ni relajando la política de Trivy:
 
-La remediación se verificó localmente para Web, Pagos, Go y Python. La confirmación definitiva requiere reconstruir y publicar las ocho imágenes, ya que Trivy analiza las imágenes del registry y no los Dockerfiles directamente. Si MariaDB continúa reportando `gosu` sin una imagen upstream corregida, el equipo debe registrar esa limitación como riesgo aceptado y justificarla explícitamente.
+- **Clientes:** se actualizaron `PyMySQL` a `1.1.1` y `Werkzeug` a `3.0.3`; se aplican las actualizaciones del sistema Alpine y la API corre como `appuser` sin privilegios de root.
+- **Pagos:** se actualizaron la base Node/Alpine y npm; se regeneró el lockfile para recoger parches transitivos. El código se copia con propietario `node` y el servicio corre como ese usuario.
+- **Facturas:** el parent de Spring Boot se actualizó a `4.0.9`, que administra versiones corregidas de Spring, Jackson y Tomcat. Se usa el starter `spring-boot-starter-webmvc` correspondiente a esa línea mayor; el runtime continúa con usuario no root.
+- **Transacciones:** se elevó Go a `1.26.10` y el módulo a `go 1.26`; también se actualizó Alpine, se aplican parches del sistema y el binario se ejecuta como `appuser`.
+- **Base de datos:** se mantiene MariaDB en la línea `11.8`. El reporte de línea base ubicaba la biblioteca estándar vulnerable en el `gosu` que venía dentro de la imagen oficial. Se decidió sustituir ese ejecutable por `gosu` oficial compilado desde el commit `29b939aa5bd4dc588af765b8248f6e39150d2565` con el toolchain actualizado. La primera versión de esta solución falló porque se intentó instalar `github.com/tianon/gosu@v1.19`, etiqueta que no existe con ese formato; se corrigió compilando el código del commit fijado directamente. El cambio no altera los scripts SQL ni la inicialización de MariaDB.
+- **Web:** se actualizó Vite a `8.3.5` y la base Alpine; se mantiene `serve` `14.2.6` en dependencias de runtime aisladas del npm global y se fuerza `compression` `1.8.2` mediante override. Se actualizó npm para eliminar el `undici` vulnerable detectado bajo npm. La imagen sigue corriendo como `node`.
+- **Tarjetas y Traefik:** los reportes de línea base no mostraron `HIGH`/`CRITICAL` corregibles. Traefik se configuró para correr como UID `65532` como defensa de mínimo privilegio.
+
+Los cambios se reconstruyeron y analizaron con el pipeline final. El resultado exitoso verifica las imágenes del registry asociadas al commit, no solo el contenido de los Dockerfiles. Los reportes JSON del 3 de noviembre que están en el directorio local son evidencia histórica; para conservar números exactos del análisis final hay que consultar o descargar los artifacts de la ejecución verde más reciente.
 
 ## Buenas prácticas de Dockerfiles: Hadolint
 
@@ -84,7 +85,7 @@ El reporte posterior no contiene errores bloqueantes. Conserva avisos informativ
 
 El job `analizar_archivos_yaml` revisa `.gitlab-ci.yml`, `docker-compose.yml` y la configuración de Traefik.
 
-El primer reporte detectó problemas de formato del repositorio:
+El reporte local disponible es una línea base anterior a las últimas correcciones y detectaba:
 
 - finales de línea CRLF en lugar de LF;
 - ausencia de newline al final de varios archivos;
@@ -92,7 +93,7 @@ El primer reporte detectó problemas de formato del repositorio:
 - advertencias de longitud de línea en el pipeline;
 - espacios adicionales después de dos puntos en la configuración TLS.
 
-Se normalizaron los finales de línea, se eliminaron espacios sobrantes y se garantizó el newline final. La regla de longitud se mantiene informativa para no bloquear el pipeline por comandos CI extensos que siguen siendo legibles y funcionales.
+Se corrigió el espacio adicional en `keyFile` de `traefik/dynamic/tls.yaml` y se agregó el newline final requerido en `.gitlab-ci.yml`. La regla de longitud se mantiene deshabilitada para no bloquear por comandos CI extensos. El YAML del pipeline solo recibió el ajuste de fin de archivo: no se modificó la lógica de deploy. La ejecución final reportada por el equipo pasó el job Yamllint.
 
 La imagen de Yamllint utiliza un entrypoint vacío en GitLab CI, permitiendo que el runner ejecute el script del job correctamente.
 
@@ -104,7 +105,7 @@ La gestión de credenciales se realiza mediante variables protegidas y enmascara
 
 ## Resultado y decisión
 
-Los controles de Semgrep, Hadolint, Yamllint y Gitleaks integran validaciones automáticas de código, contenedores, configuración y secretos. Trivy agrega el análisis de vulnerabilidades de las imágenes antes del despliegue.
+Los controles de Semgrep, Hadolint, Yamllint y Gitleaks integran validaciones automáticas de código, contenedores, configuración y secretos. Trivy analiza las ocho imágenes que se publican en el registry antes de permitir que el pipeline avance al despliegue. El pipeline final fue confirmado como exitoso por el equipo; los hallazgos de la tabla anterior son la línea base previa, no el estado final.
 
 La decisión del equipo es bloquear el flujo ante vulnerabilidades `HIGH` o `CRITICAL` corregibles y ante hallazgos SAST `ERROR`. De esta manera el despliegue manual del job posterior no queda habilitado como resultado de un pipeline que haya omitido controles de seguridad.
 
