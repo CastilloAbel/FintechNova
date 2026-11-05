@@ -14,8 +14,11 @@ FROM node:24-alpine3.22 AS runtime
 WORKDIR /app
     
 RUN apk upgrade --no-cache \
-    && npm install --global npm@12.2.1 serve@14.2.6 compression@1.8.2 \
+    && npm install --global npm@12.2.2 \
     && npm cache clean --force
+
+COPY web/runtime-package.json ./runtime/package.json
+RUN npm install --prefix ./runtime --omit=dev --package-lock=false
 
 COPY --from=build --chown=node:node /app/dist ./dist
 
@@ -24,4 +27,4 @@ EXPOSE 8080
 USER node
 
 # -s habilita fallback a index.html para rutas de una SPA.
-CMD ["serve", "-s", "dist", "-l", "8080"]
+CMD ["./runtime/node_modules/.bin/serve", "-s", "dist", "-l", "8080"]
