@@ -59,7 +59,7 @@ services:
           memory: 256M
     depends_on:
       - tp1-db
-  
+
   tp1-web:
     image: ${DOCKER_USER}/tp1-web:${IMAGE_TAG}
     container_name: tp1-web
@@ -112,7 +112,7 @@ services:
         limits:
           cpus: "0.25"
           memory: 256M
-  
+
   tp1-api-tarjetas:
     image: ${DOCKER_USER}/tp1-api-tarjetas:${IMAGE_TAG}
     container_name: tp1-api-tarjetas
