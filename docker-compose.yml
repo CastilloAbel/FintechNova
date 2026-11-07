@@ -5,6 +5,8 @@ services:
     restart: always
     security_opt:
       - no-new-privileges:true
+    group_add:
+      - "993"
     networks:
       - proxy
     ports:
