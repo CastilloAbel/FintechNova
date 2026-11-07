@@ -18,7 +18,7 @@ chmod 600 .env certs/local.key
 
 # Permite que Traefik (UID 65532) lea las credenciales del dashboard.
 sudo chown 65532:0 secrets/dashboard_users
-chmod 640 secrets/dashboard_users
+sudo chmod 640 secrets/dashboard_users
 
 command -v dnf >/dev/null || fail 'Este script requiere Amazon Linux 2023.'
 sudo dnf install -y docker
