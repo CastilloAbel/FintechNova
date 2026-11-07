@@ -217,7 +217,11 @@ deploy_aws:
   tags:
     - runner-without-dind
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "feature/deploy-aws || $CI_COMMIT_BRANCH == "feature/test-deploy-ec2"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+    - if: '$CI_COMMIT_BRANCH == "feature/deploy-aws"'
+      when: manual
+    - if: '$CI_COMMIT_BRANCH == "feature/test-deploy-ec2"'
       when: manual
   allow_failure: true
 
