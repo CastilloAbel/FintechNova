@@ -217,7 +217,11 @@ deploy_aws:
   tags:
     - runner-without-dind
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "feature/deploy-aws"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+    - if: '$CI_COMMIT_BRANCH == "feature/deploy-aws"'
+      when: manual
+    - if: '$CI_COMMIT_BRANCH == "feature/test-deploy-ec2"'
       when: manual
   allow_failure: true
 
@@ -245,11 +249,16 @@ deploy_aws:
       set -eu
       set -o pipefail
 
-      echo "Verificando conexion con EC2..."
+      echo "Preparando Docker y Docker Compose en EC2..."
+
+      scp -o BatchMode=yes -i "$AWS_SSH_PRIVATE_KEY" \
+        setup-ec2.sh \
+        "$AWS_EC2_USER@$AWS_EC2_HOST:~/setup-ec2.sh"
+
       ssh -o BatchMode=yes -o ConnectTimeout=10 \
         -i "$AWS_SSH_PRIVATE_KEY" \
         "$AWS_EC2_USER@$AWS_EC2_HOST" \
-        "sudo docker info >/dev/null"
+        "bash ~/setup-ec2.sh"
 
       echo "Iniciando sesion en el Registry..."
       export DOCKER_CONFIG="$(mktemp -d)"
@@ -357,9 +366,15 @@ deploy_aws:
       printf '%s\n' "$DASHBOARD_PASSWORD" |
         htpasswd -B -i -c dashboard_users "$DASHBOARD_USER"
 
+      # Copiar primero a un archivo temporal que pertenece a ec2-user.
       scp -i "$AWS_SSH_PRIVATE_KEY" \
         dashboard_users \
-        "$AWS_EC2_USER@$AWS_EC2_HOST:~/fintech-nova/secrets/dashboard_users"
+        "$AWS_EC2_USER@$AWS_EC2_HOST:~/dashboard_users.tmp"
+
+      # Moverlo al directorio definitivo con los permisos adecuados.
+      ssh -i "$AWS_SSH_PRIVATE_KEY" \
+        "$AWS_EC2_USER@$AWS_EC2_HOST" \
+        "sudo install -o 65532 -g 0 -m 640 ~/dashboard_users.tmp ~/fintech-nova/secrets/dashboard_users && rm -f ~/dashboard_users.tmp"
 
       rm -f dashboard_users
 
@@ -380,4 +395,4 @@ deploy_aws:
       echo "Iniciando contenedores en AWS..."
       ssh -i "$AWS_SSH_PRIVATE_KEY" \
         "$AWS_EC2_USER@$AWS_EC2_HOST" \
-        "cd ~/fintech-nova && chmod 600 .env certs/local.key secrets/dashboard_users && chmod +x deploy.sh && ./deploy.sh"
+        "cd ~/fintech-nova && chmod 600 .env certs/local.key && chmod +x deploy.sh && ./deploy.sh"

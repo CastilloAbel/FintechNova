@@ -7,7 +7,7 @@
 # mismo usuario de aplicacion a todas.
 set -e
 
-mysql -u root -p"$MYSQL_ROOT_PASSWORD" <<-EOSQL
+mariadb -u root -p"$MYSQL_ROOT_PASSWORD" <<-EOSQL
     CREATE DATABASE IF NOT EXISTS db_clientes;
     CREATE DATABASE IF NOT EXISTS db_pagos;
     CREATE DATABASE IF NOT EXISTS db_facturas;
