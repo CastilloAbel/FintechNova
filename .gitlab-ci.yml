@@ -396,3 +396,4 @@ deploy_aws:
       ssh -i "$AWS_SSH_PRIVATE_KEY" \
         "$AWS_EC2_USER@$AWS_EC2_HOST" \
         "cd ~/fintech-nova && chmod 600 .env certs/local.key && chmod +x deploy.sh && ./deploy.sh"
+        
