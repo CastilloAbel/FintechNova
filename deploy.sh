@@ -13,8 +13,12 @@ for file in .env docker-compose.yml certs/local.crt certs/local.key secrets/dash
   [[ -s $file ]] || fail "Falta el archivo requerido: $file"
 done
 
-# Restringe los archivos que contienen credenciales o claves privadas.
-chmod 600 .env certs/local.key secrets/dashboard_users
+# Protege las variables de entorno y la clave privada HTTPS.
+chmod 600 .env certs/local.key
+
+# Permite que Traefik (UID 65532) lea las credenciales del dashboard.
+sudo chown 65532:0 secrets/dashboard_users
+sudo chmod 640 secrets/dashboard_users
 
 command -v dnf >/dev/null || fail 'Este script requiere Amazon Linux 2023.'
 sudo dnf install -y docker
