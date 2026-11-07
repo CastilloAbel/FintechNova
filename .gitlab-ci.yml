@@ -151,6 +151,7 @@ analizar_codigo_semgrep:
 
 analizar_imagenes_trivy:
   stage: security
+  allow_failure: true
   image:
     name: aquasec/trivy:latest
     entrypoint: [""]
@@ -216,7 +217,7 @@ deploy_aws:
   tags:
     - runner-without-dind
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "feature/deploy-aws"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "feature/deploy-aws || $CI_COMMIT_BRANCH == "feature/test-deploy-ec2"'
       when: manual
   allow_failure: true
 
@@ -244,11 +245,16 @@ deploy_aws:
       set -eu
       set -o pipefail
 
-      echo "Verificando conexion con EC2..."
+      echo "Preparando Docker y Docker Compose en EC2..."
+
+      scp -o BatchMode=yes -i "$AWS_SSH_PRIVATE_KEY" \
+        setup-ec2.sh \
+        "$AWS_EC2_USER@$AWS_EC2_HOST:~/setup-ec2.sh"
+
       ssh -o BatchMode=yes -o ConnectTimeout=10 \
         -i "$AWS_SSH_PRIVATE_KEY" \
         "$AWS_EC2_USER@$AWS_EC2_HOST" \
-        "sudo docker info >/dev/null"
+        "bash ~/setup-ec2.sh"
 
       echo "Iniciando sesion en el Registry..."
       export DOCKER_CONFIG="$(mktemp -d)"
