@@ -246,8 +246,10 @@ terraform_state_probe:
   script:
     - |
       set -eu
-      export TF_HTTP_USERNAME="gitlab-ci-token"
-      export TF_HTTP_PASSWORD="$CI_JOB_TOKEN"
+      export TF_USERNAME="$TF_STATE_USERNAME"
+      export TF_PASSWORD="$TF_STATE_PASSWORD"
+      export TF_HTTP_USERNAME="$TF_STATE_USERNAME"
+      export TF_HTTP_PASSWORD="$TF_STATE_PASSWORD"
       export TF_HTTP_ADDRESS="$CI_API_V4_URL/projects/$CI_PROJECT_ID/terraform/state/fintech-state-probe"
       export TF_HTTP_LOCK_ADDRESS="$TF_HTTP_ADDRESS/lock"
       export TF_HTTP_UNLOCK_ADDRESS="$TF_HTTP_ADDRESS/lock"
@@ -301,8 +303,10 @@ deploy_aws:
       set -eu
       set -o pipefail
 
-      export TF_HTTP_USERNAME="gitlab-ci-token"
-      export TF_HTTP_PASSWORD="$CI_JOB_TOKEN"
+      export TF_USERNAME="$TF_STATE_USERNAME"
+      export TF_PASSWORD="$TF_STATE_PASSWORD"
+      export TF_HTTP_USERNAME="$TF_STATE_USERNAME"
+      export TF_HTTP_PASSWORD="$TF_STATE_PASSWORD"
       export TF_HTTP_ADDRESS="$CI_API_V4_URL/projects/$CI_PROJECT_ID/terraform/state/fintech-nova-sandbox"
       export TF_HTTP_LOCK_ADDRESS="$TF_HTTP_ADDRESS/lock"
       export TF_HTTP_UNLOCK_ADDRESS="$TF_HTTP_ADDRESS/lock"
@@ -531,8 +535,10 @@ destroy_ec2:
   script:
     - |
       set -eu
-      export TF_HTTP_USERNAME="gitlab-ci-token"
-      export TF_HTTP_PASSWORD="$CI_JOB_TOKEN"
+      export TF_USERNAME="$TF_STATE_USERNAME"
+      export TF_PASSWORD="$TF_STATE_PASSWORD"
+      export TF_HTTP_USERNAME="$TF_STATE_USERNAME"
+      export TF_HTTP_PASSWORD="$TF_STATE_PASSWORD"
       export TF_HTTP_ADDRESS="$CI_API_V4_URL/projects/$CI_PROJECT_ID/terraform/state/fintech-nova-sandbox"
       export TF_HTTP_LOCK_ADDRESS="$TF_HTTP_ADDRESS/lock"
       export TF_HTTP_UNLOCK_ADDRESS="$TF_HTTP_ADDRESS/lock"
