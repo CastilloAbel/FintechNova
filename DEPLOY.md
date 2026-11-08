@@ -1,6 +1,43 @@
 # Build y despliegue en EC2
 
-El flujo usa tres scripts: `build.sh` construye y publica las imágenes desde la PC; `prepare-deploy.sh` crea localmente el certificado y el usuario del dashboard; `deploy.sh` se copia a EC2 y se ejecuta allí. La clave privada PEM nunca se copia a la instancia.
+## Provisionamiento automático con Terraform en GitLab CI
+
+En la rama `deploy/terraform` (y luego de integrar el cambio, en `main`) el job manual `deploy_aws` crea la EC2 y el Security Group desde `infra/aws/` con Terraform CLI 1.17.1, y continúa con el flujo existente de transferencia de imágenes y ejecución de `setup-ec2.sh`/`deploy.sh`. Antes hay que iniciar el AWS Academy Learner Lab manualmente.
+
+### State remoto y prueba sin AWS
+
+El proyecto usa el backend HTTP de Terraform State de GitLab. El job manual `terraform_state_probe` usa un state de prueba independiente y un recurso local `terraform_data`; no necesita credenciales AWS, no crea EC2 y no genera costos en AWS. Ejecutarlo y verificar que init/apply/destroy concluyan correctamente antes de provisionar. En GitLab Self-Managed, si el menú **Operate/Infrastructure → Terraform states** no está disponible o el probe falla por backend/auth, solicitar al administrador que habilite Terraform state. No reemplazarlo por state local temporal del runner.
+
+### Variables requeridas por sesión
+
+Después de iniciar el Sandbox, actualizar en **Settings → CI/CD → Variables**:
+
+| Variable | Uso | Protección |
+|---|---|---|
+| `AWS_ACCESS_KEY_ID` | Access key temporal del Lab | Masked y Protected |
+| `AWS_SECRET_ACCESS_KEY` | Secret key temporal del Lab | Masked y Protected |
+| `AWS_SESSION_TOKEN` | Token temporal requerido por Academy | Masked y Protected |
+| `AWS_DEFAULT_REGION` | Región actual del Lab donde existe la AMI | Protected; no es secreto |
+| `RUNNER_EGRESS_CIDR` | IP de salida actual del runner, en formato CIDR, por ejemplo `200.10.191.20/32` | Protected; confirmar el egress antes de cada sesión |
+
+La AMI predeterminada `ami-0c230065b91270bc6` es un identificador regional. Confirmar que corresponde a Amazon Linux 2023 x86_64 en `AWS_DEFAULT_REGION`; si no, sobrescribir el valor no secreto `AWS_EC2_AMI_ID` en variables CI/CD. La instancia se configura como `t3.small` con root volume gp3 de 20 GiB.
+
+Las variables Protected solo están disponibles en ramas protegidas. Proteger `deploy/terraform` mientras se valida esta implementación o ejecutar desde `main` después de integrar el cambio. Nunca pegar credenciales AWS o claves privadas en el YAML, el state o artifacts.
+
+### Ejecutar y destruir
+
+1. Iniciar el Learner Lab y refrescar las credenciales/variables de esa sesión.
+2. Ejecutar el pipeline y lanzar manualmente `terraform_state_probe`.
+3. Cuando el probe esté verde, lanzar `deploy_aws`. Terraform genera una clave Ed25519 efímera en el mismo job, sube solo la pública a AWS, crea SG/EC2, obtiene la IP y ejecuta el despliegue actual. La clave privada se borra al terminar el job; no se necesita `AWS_EC2_HOST` ni `AWS_SSH_PRIVATE_KEY`.
+4. Antes de cerrar o dejar expirar el Sandbox, ejecutar manualmente `destroy_ec2`. Usa el mismo state GitLab para destruir instancia, SG y key pair. Si el Sandbox expira primero, las credenciales pueden dejar de servir; revisar la consola del Lab y limpiar recursos remanentes si todavía existen.
+
+El SG abre únicamente SSH desde `RUNNER_EGRESS_CIDR` y HTTPS `443` desde Internet; HTTP, APIs y DB no se publican. El grupo de recursos GitLab `aws-sandbox` serializa deploy/destroy. La EC2 y el disco consumen cuotas/presupuesto del Lab; “Free tier eligible” no garantiza costo cero en AWS Academy.
+
+## Procedimiento manual histórico (referencia)
+
+La sección siguiente describe el flujo manual anterior, que usaba Docker Hub y una PEM cargada por la persona. No es el flujo automatizado de la rama `deploy/terraform`: para ese flujo se deben seguir las instrucciones de Terraform anteriores. La clave privada efímera del pipeline nunca se copia a EC2.
+
+El flujo manual usa tres scripts: `build.sh` construye y publica las imágenes desde la PC; `prepare-deploy.sh` crea localmente el certificado y el usuario del dashboard; `deploy.sh` se copia a EC2 y se ejecuta allí.
 
 ## 1. Publicar las imágenes desde la PC
 

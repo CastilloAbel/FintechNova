@@ -2,6 +2,8 @@
 
 Este documento describe la configuración utilizada para desplegar FinTech Nova en Amazon EC2 y el procedimiento utilizado para validar el funcionamiento de la aplicación.
 
+> **Provisionamiento desde CI:** la rama `deploy/terraform` automatiza EC2, Security Group y key pair con Terraform CLI en GitLab y luego ejecuta el deploy existente. Inicio del AWS Academy Learner Lab y renovación de sus credenciales siguen siendo manuales. Las instrucciones y variables actualizadas están en [DEPLOY.md](DEPLOY.md). La tabla siguiente conserva la configuración de una sesión anterior; no reutilizar esos IDs efímeros de AMI, VPC, subnet, SG o IP para sesiones nuevas.
+
 ## 1. Instancia utilizada
 
 Para la prueba final se creó una instancia EC2 con la siguiente configuración:
