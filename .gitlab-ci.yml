@@ -328,7 +328,26 @@ deploy_aws:
 
       export TF_VAR_aws_region="$AWS_DEFAULT_REGION"
       export TF_VAR_ami_id="$AWS_EC2_AMI_ID"
-      export TF_VAR_runner_ssh_cidr="$RUNNER_EGRESS_CIDR"
+      RUNNER_SSH_CIDR="$(python3 - "$RUNNER_EGRESS_CIDR" <<'PY'
+      import ipaddress
+      import sys
+
+      value = sys.argv[1].strip()
+      if "/" not in value:
+          value = f"{value}/32"
+
+      try:
+          network = ipaddress.ip_network(value, strict=False)
+      except ValueError:
+          raise SystemExit("RUNNER_EGRESS_CIDR debe ser una IP IPv4, con /32 opcional")
+
+      if network.version != 4 or network.prefixlen != 32:
+          raise SystemExit("RUNNER_EGRESS_CIDR debe ser una IP IPv4 individual (/32)")
+
+      print(network.with_prefixlen)
+      PY
+      )"
+      export TF_VAR_runner_ssh_cidr="$RUNNER_SSH_CIDR"
       export TF_VAR_resource_suffix="$CI_PIPELINE_ID"
       export TF_VAR_ssh_public_key="$(cat "$TF_SSH_KEY.pub")"
 

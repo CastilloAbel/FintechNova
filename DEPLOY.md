@@ -18,7 +18,7 @@ Después de iniciar el Sandbox, actualizar en **Settings → CI/CD → Variables
 | `AWS_SECRET_ACCESS_KEY` | Secret key temporal del Lab | Masked y Protected |
 | `AWS_SESSION_TOKEN` | Token temporal requerido por Academy | Masked y Protected |
 | `AWS_DEFAULT_REGION` | Región actual del Lab donde existe la AMI | Protected; no es secreto |
-| `RUNNER_EGRESS_CIDR` | IP de salida actual del runner, en formato CIDR, por ejemplo `200.10.191.20/32` | Protected; confirmar el egress antes de cada sesión |
+| `RUNNER_EGRESS_CIDR` | IP IPv4 de salida actual del runner, por ejemplo `200.10.191.20` o `200.10.191.20/32` | Protected; confirmar el egress antes de cada sesión |
 
 La AMI predeterminada `ami-0c230065b91270bc6` es un identificador regional. Confirmar que corresponde a Amazon Linux 2023 x86_64 en `AWS_DEFAULT_REGION`; si no, sobrescribir el valor no secreto `AWS_EC2_AMI_ID` en variables CI/CD. La instancia se configura como `t3.small` con root volume gp3 de 20 GiB.
 
@@ -31,7 +31,7 @@ Las variables Protected solo están disponibles en ramas protegidas. Proteger `d
 3. Cuando el probe esté verde, lanzar `deploy_aws`. Terraform genera una clave Ed25519 efímera en el mismo job, sube solo la pública a AWS, crea SG/EC2, obtiene la IP y ejecuta el despliegue actual. La clave privada se borra al terminar el job; no se necesita `AWS_EC2_HOST` ni `AWS_SSH_PRIVATE_KEY`.
 4. Antes de cerrar o dejar expirar el Sandbox, ejecutar manualmente `destroy_ec2`. Usa el mismo state GitLab para destruir instancia, SG y key pair. Si el Sandbox expira primero, las credenciales pueden dejar de servir; revisar la consola del Lab y limpiar recursos remanentes si todavía existen.
 
-El SG abre únicamente SSH desde `RUNNER_EGRESS_CIDR` y HTTPS `443` desde Internet; HTTP, APIs y DB no se publican. El grupo de recursos GitLab `aws-sandbox` serializa deploy/destroy. La EC2 y el disco consumen cuotas/presupuesto del Lab; “Free tier eligible” no garantiza costo cero en AWS Academy.
+El job recorta espacios y normaliza una IP IPv4 simple como `/32`; también acepta la forma explícita `/32`. Rechaza redes más amplias, IPv6 y valores malformados. El SG abre únicamente SSH desde esa dirección y HTTPS `443` desde Internet; HTTP, APIs y DB no se publican. El grupo de recursos GitLab `aws-sandbox` serializa deploy/destroy. La EC2 y el disco consumen cuotas/presupuesto del Lab; “Free tier eligible” no garantiza costo cero en AWS Academy.
 
 ## Procedimiento manual histórico (referencia)
 

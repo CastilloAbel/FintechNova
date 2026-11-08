@@ -22,12 +22,12 @@ variable "root_volume_size" {
 }
 
 variable "runner_ssh_cidr" {
-  description = "Runner's current outbound IPv4 CIDR, for SSH ingress only."
+  description = "Runner's current outbound IPv4 address as a /32 CIDR, for SSH ingress only."
   type        = string
 
   validation {
-    condition     = can(cidrhost(var.runner_ssh_cidr, 0))
-    error_message = "runner_ssh_cidr must be a valid IPv4 CIDR, for example 200.10.191.20/32."
+    condition     = can(cidrnetmask(var.runner_ssh_cidr)) && try(split("/", var.runner_ssh_cidr)[1] == "32", false)
+    error_message = "runner_ssh_cidr must be one IPv4 address in /32 notation, for example 200.10.191.20/32."
   }
 }
 
