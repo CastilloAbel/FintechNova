@@ -241,7 +241,7 @@ deploy_aws:
       when: manual
     - if: '$CI_COMMIT_BRANCH == "deploy/terraform"'
       when: manual
-  allow_failure: true
+  # allow_failure: true
   before_script:
     - apk add --no-cache bash openssh-client openssl apache2-utils python3
     - test -n "$DB_USER"
@@ -272,7 +272,7 @@ deploy_terraform:
       when: manual
     - if: '$CI_COMMIT_BRANCH == "deploy/terraform"'
       when: manual
-  allow_failure: true
+  # allow_failure: true
   resource_group: aws-sandbox
   environment:
     name: aws-sandbox
