@@ -240,9 +240,8 @@ deploy_aws:
     - if: '$CI_COMMIT_BRANCH == "feature/test-deploy-ec2"'
       when: manual
   allow_failure: true
-
   before_script:
-    - apk add --no-cache openssh-client openssl apache2-utils python3
+    - apk add --no-cache bash openssh-client openssl apache2-utils python3
     - test -n "$DB_USER"
     - test -n "$DB_PASSWORD"
     - test -n "$MYSQL_ROOT_PASSWORD"
@@ -255,166 +254,9 @@ deploy_aws:
     - test -n "$CI_REGISTRY_USER"
     - test -n "$CI_REGISTRY_PASSWORD"
     - chmod 600 "$AWS_SSH_PRIVATE_KEY"
-    - mkdir -p ~/.ssh
-    - chmod 700 ~/.ssh
-    - ssh-keyscan -T 10 -H "$AWS_EC2_HOST" > ~/.ssh/known_hosts
-    - chmod 600 ~/.ssh/known_hosts
-
   script:
-    - |
-      set -eu
-      set -o pipefail
-      umask 077
-
-      DEPLOY_TMP_DIR="$(mktemp -d)"
-      export DOCKER_CONFIG="$DEPLOY_TMP_DIR/docker"
-      mkdir -p "$DOCKER_CONFIG"
-      cleanup() {
-        rm -rf -- "$DEPLOY_TMP_DIR"
-      }
-      trap cleanup EXIT
-      trap 'exit 1' HUP INT TERM
-
-      echo "Preparando Docker y Docker Compose en EC2..."
-
-      scp -o BatchMode=yes -i "$AWS_SSH_PRIVATE_KEY" \
-        setup-ec2.sh \
-        "$AWS_EC2_USER@$AWS_EC2_HOST:~/setup-ec2.sh"
-
-      ssh -o BatchMode=yes -o ConnectTimeout=10 \
-        -i "$AWS_SSH_PRIVATE_KEY" \
-        "$AWS_EC2_USER@$AWS_EC2_HOST" \
-        "bash ~/setup-ec2.sh"
-
-      echo "Iniciando sesion en el Registry..."
-      printf '%s' "$CI_REGISTRY_PASSWORD" |
-        docker login "$CI_REGISTRY" \
-          --username "$CI_REGISTRY_USER" \
-          --password-stdin
-
-      echo "Transfiriendo las 8 imagenes a EC2..."
-
-      for IMAGE_NAME in \
-        tp1-traefik \
-        tp1-db \
-        tp1-api-clientes \
-        tp1-api-pagos \
-        tp1-api-facturas \
-        tp1-api-tarjetas \
-        tp1-api-transacciones \
-        tp1-web
-      do
-        IMAGE_REF="$CI_REGISTRY/$CI_PROJECT_PATH/$IMAGE_NAME:$IMAGE_TAG"
-
-        echo "Descargando $IMAGE_NAME..."
-        docker pull "$IMAGE_REF"
-
-        echo "Enviando $IMAGE_NAME a EC2..."
-        docker save "$IMAGE_REF" |
-          ssh -o BatchMode=yes -o ConnectTimeout=10 \
-            -i "$AWS_SSH_PRIVATE_KEY" \
-            "$AWS_EC2_USER@$AWS_EC2_HOST" \
-            "sudo docker load"
-
-        echo "$IMAGE_NAME transferida correctamente"
-      done
-
-      echo "Verificando imagenes en EC2..."
-      ssh -o BatchMode=yes -i "$AWS_SSH_PRIVATE_KEY" \
-        "$AWS_EC2_USER@$AWS_EC2_HOST" \
-        "sudo docker image ls"
-
-      echo "Las 8 imagenes fueron transferidas a EC2"
-      echo "Preparando directorio de despliegue..."
-      ssh -i "$AWS_SSH_PRIVATE_KEY" \
-        "$AWS_EC2_USER@$AWS_EC2_HOST" \
-        "mkdir -p ~/fintech-nova/certs ~/fintech-nova/secrets"
-
-      echo "Copiando archivos de despliegue..."
-      scp -i "$AWS_SSH_PRIVATE_KEY" \
-        docker-compose.yml deploy.sh \
-        "$AWS_EC2_USER@$AWS_EC2_HOST:~/fintech-nova/"
-
-      echo "Preparando variables de entorno..."
-      export DOCKER_USER="$CI_REGISTRY/$CI_PROJECT_PATH"
-      export DOMAIN="$AWS_EC2_HOST"
-      export DB_HOST="tp1-db"
-      export DB_PORT="3306"
-      export MYSQL_DATABASE="fintech_nova"
-      export DB_NAME_CLIENTES="db_clientes"
-      export DB_NAME_PAGOS="db_pagos"
-      export DB_NAME_FACTURAS="db_facturas"
-      export DB_NAME_TARJETAS="db_tarjetas"
-      export DB_NAME_TRANSACCIONES="db_transacciones"
-
-      python3 - <<'PY' > "$DEPLOY_TMP_DIR/deployment.env"
-      import os
-
-      keys = [
-          "DOCKER_USER", "IMAGE_TAG", "DOMAIN",
-          "DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD",
-          "MYSQL_ROOT_PASSWORD", "MYSQL_DATABASE",
-          "DB_NAME_CLIENTES", "DB_NAME_PAGOS",
-          "DB_NAME_FACTURAS", "DB_NAME_TARJETAS",
-          "DB_NAME_TRANSACCIONES", "IPAPI_TOKEN"
-      ]
-
-      defaults = {
-          "DB_HOST": "tp1-db",
-          "DB_PORT": "3306",
-          "MYSQL_DATABASE": "fintech_nova",
-          "DB_NAME_CLIENTES": "db_clientes",
-          "DB_NAME_PAGOS": "db_pagos",
-          "DB_NAME_FACTURAS": "db_facturas",
-          "DB_NAME_TARJETAS": "db_tarjetas",
-          "DB_NAME_TRANSACCIONES": "db_transacciones"
-      }
-
-      for key in keys:
-          value = os.environ.get(key, defaults.get(key, ""))
-          if "\n" in value or "\r" in value:
-              raise ValueError(f"Valor invalido para {key}")
-          print(f"{key}={value}")
-      PY
-
-      chmod 600 "$DEPLOY_TMP_DIR/deployment.env"
-
-      scp -i "$AWS_SSH_PRIVATE_KEY" \
-        "$DEPLOY_TMP_DIR/deployment.env" \
-        "$AWS_EC2_USER@$AWS_EC2_HOST:~/fintech-nova/.env"
-
-      echo "Preparando autenticacion del dashboard..."
-      printf '%s\n' "$DASHBOARD_PASSWORD" |
-        htpasswd -B -i -c "$DEPLOY_TMP_DIR/dashboard_users" "$DASHBOARD_USER"
-
-      scp -i "$AWS_SSH_PRIVATE_KEY" \
-        "$DEPLOY_TMP_DIR/dashboard_users" \
-        "$AWS_EC2_USER@$AWS_EC2_HOST:~/dashboard_users.tmp"
-
-      ssh -i "$AWS_SSH_PRIVATE_KEY" \
-        "$AWS_EC2_USER@$AWS_EC2_HOST" \
-        "sudo install -o 65532 -g 0 -m 640 ~/dashboard_users.tmp ~/fintech-nova/secrets/dashboard_users && rm -f ~/dashboard_users.tmp"
-
-      echo "Generando certificado HTTPS..."
-      openssl req -x509 -nodes -newkey rsa:2048 \
-        -keyout "$DEPLOY_TMP_DIR/local.key" \
-        -out "$DEPLOY_TMP_DIR/local.crt" \
-        -days 365 \
-        -subj "/CN=$AWS_EC2_HOST" \
-        -addext "subjectAltName=IP:$AWS_EC2_HOST"
-
-      scp -i "$AWS_SSH_PRIVATE_KEY" \
-        "$DEPLOY_TMP_DIR/local.crt" "$DEPLOY_TMP_DIR/local.key" \
-        "$AWS_EC2_USER@$AWS_EC2_HOST:~/fintech-nova/certs/"
-
-      echo "Iniciando contenedores en AWS..."
-      ssh -i "$AWS_SSH_PRIVATE_KEY" \
-        "$AWS_EC2_USER@$AWS_EC2_HOST" \
-        "cd ~/fintech-nova && chmod 600 .env certs/local.key && chmod +x deploy.sh && ./deploy.sh"
-
-      echo "Despliegue legacy verificado correctamente."
-      echo "Aplicacion: https://$AWS_EC2_HOST/"
-      echo "Dashboard: https://$AWS_EC2_HOST/dashboard/"
+    - export DEPLOY_SSH_KEY="$AWS_SSH_PRIVATE_KEY"
+    - bash deploy-ci.sh
 
 deploy_terraform:
   stage: deploy
@@ -432,7 +274,6 @@ deploy_terraform:
   resource_group: aws-sandbox
   environment:
     name: aws-sandbox
-
   before_script:
     - apk add --no-cache ca-certificates docker-cli openssh-client openssl apache2-utils python3 bash coreutils
     - test -n "$DB_USER"
@@ -445,14 +286,14 @@ deploy_terraform:
     - test -n "$AWS_SESSION_TOKEN"
     - test -n "$AWS_DEFAULT_REGION"
     - test -n "$RUNNER_EGRESS_CIDR"
+    - test -n "$TF_STATE_USERNAME"
+    - test -n "$TF_STATE_PASSWORD"
     - test -n "$CI_REGISTRY"
     - test -n "$CI_REGISTRY_USER"
     - test -n "$CI_REGISTRY_PASSWORD"
-
   script:
     - |
-      set -eu
-      set -o pipefail
+      set -Eeuo pipefail
       umask 077
 
       export TF_USERNAME="$TF_STATE_USERNAME"
@@ -467,17 +308,16 @@ deploy_terraform:
       export TF_HTTP_RETRY_WAIT_MIN="5"
 
       TF_TMP_DIR="$(mktemp -d)"
-      TF_SSH_DIR="$TF_TMP_DIR/ssh"
+      TF_SSH_KEY="$TF_TMP_DIR/id_ed25519"
       export TF_DATA_DIR="$TF_TMP_DIR/terraform-data"
-      export DOCKER_CONFIG="$TF_TMP_DIR/docker"
-      mkdir -p "$TF_SSH_DIR" "$TF_DATA_DIR" "$DOCKER_CONFIG"
+      export TMPDIR="$TF_TMP_DIR"
+      mkdir -p "$TF_DATA_DIR"
       cleanup() {
         rm -rf -- "$TF_TMP_DIR"
       }
       trap cleanup EXIT
       trap 'exit 1' HUP INT TERM
 
-      TF_SSH_KEY="$TF_SSH_DIR/id_ed25519"
       ssh-keygen -q -t ed25519 -N "" \
         -C "gitlab-$CI_PROJECT_ID-$CI_PIPELINE_ID" \
         -f "$TF_SSH_KEY"
@@ -513,175 +353,7 @@ deploy_terraform:
       terraform -chdir=infra/aws plan -input=false -out="$TF_TMP_DIR/deploy.tfplan"
       terraform -chdir=infra/aws apply -input=false -auto-approve "$TF_TMP_DIR/deploy.tfplan"
 
-      AWS_EC2_HOST="$(terraform -chdir=infra/aws output -raw public_ip)"
-      AWS_EC2_USER="$(terraform -chdir=infra/aws output -raw ssh_user)"
-      export AWS_EC2_HOST AWS_EC2_USER
-
-      echo "Esperando SSH en la nueva instancia EC2..."
-      scan_attempt=0
-      while [ "$scan_attempt" -lt 12 ]; do
-        if ssh-keyscan -T 5 -H "$AWS_EC2_HOST" \
-          > "$TF_SSH_DIR/known_hosts.tmp" 2>/dev/null \
-          && [ -s "$TF_SSH_DIR/known_hosts.tmp" ]; then
-          mv "$TF_SSH_DIR/known_hosts.tmp" "$TF_SSH_DIR/known_hosts"
-          break
-        fi
-        scan_attempt=$((scan_attempt + 1))
-        sleep 5
-      done
-      test -s "$TF_SSH_DIR/known_hosts" || {
-        echo "No se pudo obtener la host key SSH de $AWS_EC2_HOST" >&2
-        exit 1
-      }
-      cat > "$TF_SSH_DIR/ssh_config" <<EOF
-      Host fintech-nova
-        HostName $AWS_EC2_HOST
-        User $AWS_EC2_USER
-        IdentityFile $TF_SSH_KEY
-        UserKnownHostsFile $TF_SSH_DIR/known_hosts
-        StrictHostKeyChecking yes
-        BatchMode yes
-        ConnectTimeout 10
-      EOF
-      chmod 600 "$TF_SSH_DIR/ssh_config" "$TF_SSH_DIR/known_hosts" "$TF_SSH_KEY"
-
-      echo "Preparando Docker y Docker Compose en EC2..."
-
-      scp -F "$TF_SSH_DIR/ssh_config" \
-        setup-ec2.sh \
-        fintech-nova:~/setup-ec2.sh
-
-      ssh -F "$TF_SSH_DIR/ssh_config" \
-        fintech-nova \
-        "bash ~/setup-ec2.sh"
-
-      echo "Iniciando sesion en el Registry..."
-      printf '%s' "$CI_REGISTRY_PASSWORD" |
-        docker login "$CI_REGISTRY" \
-          --username "$CI_REGISTRY_USER" \
-          --password-stdin
-
-      echo "Transfiriendo las 8 imagenes a EC2..."
-
-      for IMAGE_NAME in \
-        tp1-traefik \
-        tp1-db \
-        tp1-api-clientes \
-        tp1-api-pagos \
-        tp1-api-facturas \
-        tp1-api-tarjetas \
-        tp1-api-transacciones \
-        tp1-web
-      do
-        IMAGE_REF="$CI_REGISTRY/$CI_PROJECT_PATH/$IMAGE_NAME:$IMAGE_TAG"
-
-        echo "Descargando $IMAGE_NAME..."
-        docker pull "$IMAGE_REF"
-
-        echo "Enviando $IMAGE_NAME a EC2..."
-        docker save "$IMAGE_REF" |
-          ssh -F "$TF_SSH_DIR/ssh_config" \
-            fintech-nova \
-            "sudo docker load"
-
-        echo "$IMAGE_NAME transferida correctamente"
-      done
-
-      echo "Verificando imagenes en EC2..."
-      ssh -F "$TF_SSH_DIR/ssh_config" \
-        fintech-nova \
-        "sudo docker image ls"
-
-      echo "Las 8 imagenes fueron transferidas a EC2"
-      echo "Preparando directorio de despliegue..."
-      ssh -F "$TF_SSH_DIR/ssh_config" \
-        fintech-nova \
-        "mkdir -p ~/fintech-nova/certs ~/fintech-nova/secrets"
-
-      echo "Copiando archivos de despliegue..."
-      scp -F "$TF_SSH_DIR/ssh_config" \
-        docker-compose.yml deploy.sh \
-        fintech-nova:~/fintech-nova/
-
-      echo "Preparando variables de entorno..."
-      export DOCKER_USER="$CI_REGISTRY/$CI_PROJECT_PATH"
-      export DOMAIN="$AWS_EC2_HOST"
-      export DB_HOST="tp1-db"
-      export DB_PORT="3306"
-      export MYSQL_DATABASE="fintech_nova"
-      export DB_NAME_CLIENTES="db_clientes"
-      export DB_NAME_PAGOS="db_pagos"
-      export DB_NAME_FACTURAS="db_facturas"
-      export DB_NAME_TARJETAS="db_tarjetas"
-      export DB_NAME_TRANSACCIONES="db_transacciones"
-
-      python3 - <<'PY' > "$TF_TMP_DIR/deployment.env"
-      import os
-
-      keys = [
-          "DOCKER_USER", "IMAGE_TAG", "DOMAIN",
-          "DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD",
-          "MYSQL_ROOT_PASSWORD", "MYSQL_DATABASE",
-          "DB_NAME_CLIENTES", "DB_NAME_PAGOS",
-          "DB_NAME_FACTURAS", "DB_NAME_TARJETAS",
-          "DB_NAME_TRANSACCIONES", "IPAPI_TOKEN"
-      ]
-
-      defaults = {
-          "DB_HOST": "tp1-db",
-          "DB_PORT": "3306",
-          "MYSQL_DATABASE": "fintech_nova",
-          "DB_NAME_CLIENTES": "db_clientes",
-          "DB_NAME_PAGOS": "db_pagos",
-          "DB_NAME_FACTURAS": "db_facturas",
-          "DB_NAME_TARJETAS": "db_tarjetas",
-          "DB_NAME_TRANSACCIONES": "db_transacciones"
-      }
-
-      for key in keys:
-          value = os.environ.get(key, defaults.get(key, ""))
-          if "\n" in value or "\r" in value:
-              raise ValueError(f"Valor invalido para {key}")
-          print(f"{key}={value}")
-      PY
-
-      chmod 600 "$TF_TMP_DIR/deployment.env"
-
-      scp -F "$TF_SSH_DIR/ssh_config" \
-        "$TF_TMP_DIR/deployment.env" \
-        fintech-nova:~/fintech-nova/.env
-
-      echo "Preparando autenticacion del dashboard..."
-      printf '%s\n' "$DASHBOARD_PASSWORD" |
-        htpasswd -B -i -c "$TF_TMP_DIR/dashboard_users" "$DASHBOARD_USER"
-
-      # Copiar primero a un archivo temporal que pertenece a ec2-user.
-      scp -F "$TF_SSH_DIR/ssh_config" \
-        "$TF_TMP_DIR/dashboard_users" \
-        fintech-nova:~/dashboard_users.tmp
-
-      # Moverlo al directorio definitivo con los permisos adecuados.
-      ssh -F "$TF_SSH_DIR/ssh_config" \
-        fintech-nova \
-        "sudo install -o 65532 -g 0 -m 640 ~/dashboard_users.tmp ~/fintech-nova/secrets/dashboard_users && rm -f ~/dashboard_users.tmp"
-
-      echo "Generando certificado HTTPS..."
-      openssl req -x509 -nodes -newkey rsa:2048 \
-        -keyout "$TF_TMP_DIR/local.key" \
-        -out "$TF_TMP_DIR/local.crt" \
-        -days 365 \
-        -subj "/CN=$AWS_EC2_HOST" \
-        -addext "subjectAltName=IP:$AWS_EC2_HOST"
-
-      scp -F "$TF_SSH_DIR/ssh_config" \
-        "$TF_TMP_DIR/local.crt" "$TF_TMP_DIR/local.key" \
-        fintech-nova:~/fintech-nova/certs/
-
-      echo "Iniciando contenedores en AWS..."
-      ssh -F "$TF_SSH_DIR/ssh_config" \
-        fintech-nova \
-        "cd ~/fintech-nova && chmod 600 .env certs/local.key && chmod +x deploy.sh && ./deploy.sh"
-
-      echo "Despliegue Terraform verificado correctamente."
-      echo "Aplicacion: https://$AWS_EC2_HOST/"
-      echo "Dashboard: https://$AWS_EC2_HOST/dashboard/"
+      export AWS_EC2_HOST="$(terraform -chdir=infra/aws output -raw public_ip)"
+      export AWS_EC2_USER="$(terraform -chdir=infra/aws output -raw ssh_user)"
+      export DEPLOY_SSH_KEY="$TF_SSH_KEY"
+      bash deploy-ci.sh

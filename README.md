@@ -462,7 +462,7 @@ No hay un job `destroy_ec2` ni una etapa de cleanup: el pipeline no ofrece una a
 
 El job Terraform aplica limpieza local con `umask 077` y un `trap` para borrar la clave privada efímera, el plan, las credenciales temporales de Docker y otros archivos del runner, también si falla. No elimina desde EC2 el `.env`, el certificado ni las credenciales del dashboard que la aplicación necesita en runtime.
 
-Los scripts existentes —`build.sh`, `build-ci.sh`, `prepare-deploy.sh`, `setup-ec2.sh` y `deploy.sh`— se preservan. El pipeline construye las imágenes mediante sus jobs declarados; estos scripts siguen disponibles para sus procedimientos históricos y no se reemplazan por el nuevo deploy.
+Los scripts existentes —`build.sh`, `build-ci.sh`, `prepare-deploy.sh`, `setup-ec2.sh` y `deploy.sh`— se preservan. El pipeline construye las imágenes mediante sus jobs declarados. Para evitar duplicar la transferencia de imágenes y la preparación runtime, ambos jobs llaman al nuevo [deploy-ci.sh](deploy-ci.sh); Terraform conserva por separado su inicialización, plan y apply, mientras que el modo legacy aporta la clave y el host existentes.
 
 Para el detalle de variables, operación por sesión del Sandbox y pasos de cada ruta, consultar [DEPLOY.md](DEPLOY.md). La política de seguridad y el estado de Trivy se describen en [SEGURIDAD.md](SEGURIDAD.md) y [ANALISIS.md](ANALISIS.md).
 

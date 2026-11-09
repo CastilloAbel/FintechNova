@@ -15,11 +15,11 @@ Tras ejecutar `deploy.sh` y sus verificaciones HTTPS, cada job imprime `https://
 
 Configura en GitLab las variables `AWS_EC2_HOST` (IPv4 pública), `AWS_EC2_USER` y `AWS_SSH_PRIVATE_KEY` (variable de tipo archivo), además de `DB_USER`, `DB_PASSWORD`, `MYSQL_ROOT_PASSWORD`, `DASHBOARD_USER`, `DASHBOARD_PASSWORD` y, si aplica, `IPAPI_TOKEN`. Protege y enmascara los valores sensibles. La EC2 debe estar activa, aceptar SSH desde el runner y ser Amazon Linux compatible con `setup-ec2.sh`.
 
-El runner inicia sesión en el Container Registry, descarga las imágenes etiquetadas con el commit y las carga en la instancia. Es necesario porque `deploy.sh` inicia Compose con `--pull never`; la EC2 no hace pull por sí misma. Este job no aprovisiona ni destruye la instancia.
+El job delega la preparación de EC2, descarga y transferencia de imágenes, generación de archivos runtime y ejecución de health checks a `deploy-ci.sh`, compartido con Terraform. El runner inicia sesión en el Container Registry y carga las imágenes etiquetadas con el commit en la instancia: es necesario porque `deploy.sh` usa `--pull never`. Este job no aprovisiona ni destruye EC2.
 
 ### Ruta Terraform: `deploy_terraform`
 
-En `main` o `deploy/terraform`, ejecutar manualmente `deploy_terraform`. Antes hay que iniciar AWS Academy Learner Lab y actualizar sus credenciales. `terraform init` valida el backend HTTP durante el propio deploy; ya no hay un job `terraform_state_probe` en el flujo.
+En `main` o `deploy/terraform`, ejecutar manualmente `deploy_terraform`. Antes hay que iniciar AWS Academy Learner Lab y actualizar sus credenciales. El job conserva únicamente el provisionamiento y luego invoca `deploy-ci.sh` con la clave y la instancia que generó. `terraform init` valida el backend HTTP durante el propio deploy; ya no hay un job `terraform_state_probe` en el flujo.
 
 ### Variables requeridas por sesión
 
