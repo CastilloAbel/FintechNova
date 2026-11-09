@@ -232,7 +232,7 @@ Por lo tanto, la base de datos y las APIs no pueden accederse directamente desde
 
 ## 10. Acceso SSH
 
-El acceso administrativo a EC2 se realiza utilizando una clave privada `.pem`.
+El acceso administrativo se realiza mediante claves SSH que permanecen en el runner/PC y nunca se copian a EC2. El pipeline separa dos destinos y credenciales: `deploy_aws` usa la clave de archivo `AWS_SSH_PRIVATE_KEY` para una instancia existente; `deploy_terraform` genera una clave Ed25519 efímera para otra instancia y elimina su copia privada al finalizar.
 
 La clave privada:
 
@@ -247,7 +247,7 @@ Durante las pruebas desde WSL fue necesario almacenar una copia de la clave en e
 chmod 600 ~/FinTech-Nova.pem
 ```
 
-La clave se utiliza desde la PC únicamente para establecer conexiones `ssh` y copiar archivos con `scp`. No se transfiere a EC2 ni se necesita para ejecutar `deploy.sh` dentro de la instancia.
+La clave se utiliza únicamente para establecer conexiones `ssh` y copiar archivos con `scp`. No se transfiere a EC2 ni se necesita para ejecutar `deploy.sh` dentro de la instancia. Las variables SSH deben mantenerse protegidas/enmascaradas en GitLab según corresponda. No ejecutar ambos modos contra el mismo host ni en paralelo si comparten destino.
 
 ---
 
@@ -294,7 +294,9 @@ para evitar publicar accidentalmente información sensible.
 
 ## 13. Automatización del despliegue
 
-El despliegue separa las responsabilidades: la PC usa la PEM con `ssh`/`scp` para transferir `.env`, certificados, secretos, Compose y `deploy.sh`; luego el script se ejecuta en EC2 sin parámetros. `DOCKER_USER` e `IMAGE_TAG` se leen del `.env`. La clave privada no se copia a la instancia.
+GitLab ofrece dos jobs manuales con funciones distintas. `deploy_aws` conecta por SSH a una EC2 ya existente usando `AWS_EC2_HOST`, `AWS_EC2_USER` y `AWS_SSH_PRIVATE_KEY`; `deploy_terraform` aprovisiona/despliega en una EC2 separada con credenciales AWS temporales y una clave efímera. Ambos transfieren las ocho imágenes desde el runner —la instancia no recibe credenciales del Registry—, generan `.env`, certificado y hash de dashboard en el runner, y los copian a EC2 como archivos runtime necesarios. Los temporales del runner se eliminan mediante trap; los secretos runtime de EC2 no se borran porque los necesita el servicio.
+
+Terraform utiliza el state remoto fijo `fintech-nova-sandbox`. Un apply posterior puede reemplazar la instancia debido al cambio de sufijo/key pair. Como el root EBS tiene `delete_on_termination`, se pierde el disco y la base de datos local; se deben respaldar los datos antes de aplicar de nuevo. El pipeline no tiene `destroy_ec2`; el Sandbox de AWS Academy puede expirar o resetear los recursos. `terraform init` dentro del job valida el backend, sin un job state-probe separado.
 
 ---
 
@@ -312,13 +314,13 @@ El pipeline ejecuta los controles en el stage `security`, después de construir 
 
 Los reportes de Semgrep, Trivy, Hadolint, Yamllint y Gitleaks se conservan como artifacts del pipeline durante una semana. El despliegue no debe ejecutarse si un control bloqueante falla.
 
-Se retiraron `probar_docker` y `probar_descarga_imagen` porque eran pruebas auxiliares del runner y del registry, no controles de seguridad del producto. La autenticación y la descarga de imágenes siguen cubiertas por el propio escaneo de Trivy.
+Se retiraron `probar_docker` y `probar_descarga_imagen` porque eran pruebas auxiliares del runner y del registry, no controles de seguridad del producto. La descarga de imágenes ocurre en los jobs de build/deploy; el escaneo Trivy de imágenes no constituye una validación de autorización SSH ni de acceso al Registry desde EC2.
 
 El análisis detallado de los hallazgos está en [ANALISIS.md](ANALISIS.md). Los reportes JSON y de texto no se versionan: se conservan como artifacts descargables de los jobs correspondientes.
 
 ### Política ante vulnerabilidades
 
-Los hallazgos corregibles `HIGH` y `CRITICAL` de Trivy y los hallazgos `ERROR` de Semgrep detienen el pipeline. Trivy ignora únicamente vulnerabilidades sin versión corregida, que quedan informadas para su evaluación. Primero se actualizan las imágenes base o dependencias y se reconstruyen las imágenes. Solo se puede aceptar un riesgo sin parche disponible si queda documentado con su impacto, justificación, medida compensatoria y responsable.
+Los hallazgos `ERROR` de Semgrep y los errores bloqueantes de los demás controles detienen el pipeline. Trivy analiza vulnerabilidades `HIGH` y `CRITICAL` (ignorando las que no tienen corrección), pero al tener `allow_failure: true` es informativo y su fallo no impide continuar hacia el deploy manual. Sus reportes deben revisarse y los riesgos aceptados documentarse con impacto, justificación, medida compensatoria y responsable. No se afirma que Trivy sea actualmente un gate.
 
 Los secretos se gestionan mediante variables protegidas y enmascaradas de GitLab o mediante archivos privados suministrados durante el despliegue. Nunca se agregan tokens, contraseñas, claves PEM, claves TLS ni archivos `.env` al repositorio.
 
