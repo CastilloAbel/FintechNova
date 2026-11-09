@@ -13,4 +13,13 @@ traefik/certs/*
 traefik/secrets/*
 certs/*
 secrets/*
+security/*
 *.pem
+
+# Terraform local cache, state, plans, crash logs, and ephemeral keys.
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log

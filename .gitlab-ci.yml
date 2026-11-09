@@ -11,6 +11,7 @@ variables:
   BUILD_RUNNER_TAG: runner-without-dind
   DEPLOY_RUNNER_TAG: ssh-docker-alumnos01
   IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+  AWS_EC2_AMI_ID: "ami-0c230065b91270bc6"
 
 prueba_pipeline:
   stage: test
@@ -18,6 +19,21 @@ prueba_pipeline:
   script:
     - echo "Iniciando pipeline de FinTech Nova"
     - echo "GitLab CI/CD funciona correctamente"
+
+validar_terraform:
+  stage: test
+  image:
+    name: hashicorp/terraform:1.17.1
+    entrypoint: [""]
+  tags: [$RUNNER_TAG]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "deploy/terraform"'
+  before_script:
+    - apk add --no-cache ca-certificates
+  script:
+    - terraform fmt -check -recursive infra
+    - terraform -chdir=infra/aws init -backend=false -input=false -lockfile=readonly
+    - terraform -chdir=infra/aws validate
 
 validar_compose:
   stage: security
@@ -223,10 +239,11 @@ deploy_aws:
       when: manual
     - if: '$CI_COMMIT_BRANCH == "feature/test-deploy-ec2"'
       when: manual
-  allow_failure: true
-
+    - if: '$CI_COMMIT_BRANCH == "deploy/terraform"'
+      when: manual
+  # allow_failure: true
   before_script:
-    - apk add --no-cache openssh-client openssl apache2-utils python3
+    - apk add --no-cache bash openssh-client openssl apache2-utils python3
     - test -n "$DB_USER"
     - test -n "$DB_PASSWORD"
     - test -n "$MYSQL_ROOT_PASSWORD"
@@ -239,160 +256,106 @@ deploy_aws:
     - test -n "$CI_REGISTRY_USER"
     - test -n "$CI_REGISTRY_PASSWORD"
     - chmod 600 "$AWS_SSH_PRIVATE_KEY"
-    - mkdir -p ~/.ssh
-    - chmod 700 ~/.ssh
-    - ssh-keyscan -T 10 -H "$AWS_EC2_HOST" > ~/.ssh/known_hosts
-    - chmod 600 ~/.ssh/known_hosts
+  script:
+    - export DEPLOY_SSH_KEY="$AWS_SSH_PRIVATE_KEY"
+    - bash deploy-ci.sh
 
+deploy_terraform:
+  stage: deploy
+  image:
+    name: hashicorp/terraform:1.17.1
+    entrypoint: [""]
+  tags:
+    - runner-without-dind
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+    - if: '$CI_COMMIT_BRANCH == "deploy/terraform"'
+      when: manual
+  # allow_failure: true
+  resource_group: aws-sandbox
+  environment:
+    name: aws-sandbox
+  before_script:
+    - apk add --no-cache ca-certificates docker-cli openssh-client openssl apache2-utils python3 bash coreutils
+    - test -n "$DB_USER"
+    - test -n "$DB_PASSWORD"
+    - test -n "$MYSQL_ROOT_PASSWORD"
+    - test -n "$DASHBOARD_USER"
+    - test -n "$DASHBOARD_PASSWORD"
+    - test -n "$AWS_ACCESS_KEY_ID"
+    - test -n "$AWS_SECRET_ACCESS_KEY"
+    - test -n "$AWS_SESSION_TOKEN"
+    - test -n "$AWS_DEFAULT_REGION"
+    - test -n "$RUNNER_EGRESS_CIDR"
+    - test -n "$TF_STATE_USERNAME"
+    - test -n "$TF_STATE_PASSWORD"
+    - test -n "$CI_REGISTRY"
+    - test -n "$CI_REGISTRY_USER"
+    - test -n "$CI_REGISTRY_PASSWORD"
   script:
     - |
-      set -eu
-      set -o pipefail
+      set -Eeuo pipefail
+      umask 077
 
-      echo "Preparando Docker y Docker Compose en EC2..."
+      export TF_USERNAME="$TF_STATE_USERNAME"
+      export TF_PASSWORD="$TF_STATE_PASSWORD"
+      export TF_HTTP_USERNAME="$TF_STATE_USERNAME"
+      export TF_HTTP_PASSWORD="$TF_STATE_PASSWORD"
+      export TF_HTTP_ADDRESS="$CI_API_V4_URL/projects/$CI_PROJECT_ID/terraform/state/fintech-nova-sandbox"
+      export TF_HTTP_LOCK_ADDRESS="$TF_HTTP_ADDRESS/lock"
+      export TF_HTTP_UNLOCK_ADDRESS="$TF_HTTP_ADDRESS/lock"
+      export TF_HTTP_LOCK_METHOD="POST"
+      export TF_HTTP_UNLOCK_METHOD="DELETE"
+      export TF_HTTP_RETRY_WAIT_MIN="5"
 
-      scp -o BatchMode=yes -i "$AWS_SSH_PRIVATE_KEY" \
-        setup-ec2.sh \
-        "$AWS_EC2_USER@$AWS_EC2_HOST:~/setup-ec2.sh"
-
-      ssh -o BatchMode=yes -o ConnectTimeout=10 \
-        -i "$AWS_SSH_PRIVATE_KEY" \
-        "$AWS_EC2_USER@$AWS_EC2_HOST" \
-        "bash ~/setup-ec2.sh"
-
-      echo "Iniciando sesion en el Registry..."
-      export DOCKER_CONFIG="$(mktemp -d)"
-      trap 'rm -rf "$DOCKER_CONFIG"' EXIT
-
-      printf '%s' "$CI_REGISTRY_PASSWORD" |
-        docker login "$CI_REGISTRY" \
-          --username "$CI_REGISTRY_USER" \
-          --password-stdin
-
-      echo "Transfiriendo las 8 imagenes a EC2..."
-
-      for IMAGE_NAME in \
-        tp1-traefik \
-        tp1-db \
-        tp1-api-clientes \
-        tp1-api-pagos \
-        tp1-api-facturas \
-        tp1-api-tarjetas \
-        tp1-api-transacciones \
-        tp1-web
-      do
-        IMAGE_REF="$CI_REGISTRY/$CI_PROJECT_PATH/$IMAGE_NAME:$IMAGE_TAG"
-
-        echo "Descargando $IMAGE_NAME..."
-        docker pull "$IMAGE_REF"
-
-        echo "Enviando $IMAGE_NAME a EC2..."
-        docker save "$IMAGE_REF" |
-          ssh -o BatchMode=yes -o ConnectTimeout=10 \
-            -i "$AWS_SSH_PRIVATE_KEY" \
-            "$AWS_EC2_USER@$AWS_EC2_HOST" \
-            "sudo docker load"
-
-        echo "$IMAGE_NAME transferida correctamente"
-      done
-
-      echo "Verificando imagenes en EC2..."
-      ssh -o BatchMode=yes -i "$AWS_SSH_PRIVATE_KEY" \
-        "$AWS_EC2_USER@$AWS_EC2_HOST" \
-        "sudo docker image ls"
-
-      echo "Las 8 imagenes fueron transferidas a EC2"
-      echo "Preparando directorio de despliegue..."
-      ssh -i "$AWS_SSH_PRIVATE_KEY" \
-        "$AWS_EC2_USER@$AWS_EC2_HOST" \
-        "mkdir -p ~/fintech-nova/certs ~/fintech-nova/secrets"
-
-      echo "Copiando archivos de despliegue..."
-      scp -i "$AWS_SSH_PRIVATE_KEY" \
-        docker-compose.yml deploy.sh \
-        "$AWS_EC2_USER@$AWS_EC2_HOST:~/fintech-nova/"
-
-      echo "Preparando variables de entorno..."
-      export DOCKER_USER="$CI_REGISTRY/$CI_PROJECT_PATH"
-      export DOMAIN="$AWS_EC2_HOST"
-      export DB_HOST="tp1-db"
-      export DB_PORT="3306"
-      export MYSQL_DATABASE="fintech_nova"
-      export DB_NAME_CLIENTES="db_clientes"
-      export DB_NAME_PAGOS="db_pagos"
-      export DB_NAME_FACTURAS="db_facturas"
-      export DB_NAME_TARJETAS="db_tarjetas"
-      export DB_NAME_TRANSACCIONES="db_transacciones"
-
-      python3 - <<'PY' > deployment.env
-      import os
-
-      keys = [
-          "DOCKER_USER", "IMAGE_TAG", "DOMAIN",
-          "DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD",
-          "MYSQL_ROOT_PASSWORD", "MYSQL_DATABASE",
-          "DB_NAME_CLIENTES", "DB_NAME_PAGOS",
-          "DB_NAME_FACTURAS", "DB_NAME_TARJETAS",
-          "DB_NAME_TRANSACCIONES", "IPAPI_TOKEN"
-      ]
-
-      defaults = {
-          "DB_HOST": "tp1-db",
-          "DB_PORT": "3306",
-          "MYSQL_DATABASE": "fintech_nova",
-          "DB_NAME_CLIENTES": "db_clientes",
-          "DB_NAME_PAGOS": "db_pagos",
-          "DB_NAME_FACTURAS": "db_facturas",
-          "DB_NAME_TARJETAS": "db_tarjetas",
-          "DB_NAME_TRANSACCIONES": "db_transacciones"
+      TF_TMP_DIR="$(mktemp -d)"
+      TF_SSH_KEY="$TF_TMP_DIR/id_ed25519"
+      export TF_DATA_DIR="$TF_TMP_DIR/terraform-data"
+      export TMPDIR="$TF_TMP_DIR"
+      mkdir -p "$TF_DATA_DIR"
+      cleanup() {
+        rm -rf -- "$TF_TMP_DIR"
       }
+      trap cleanup EXIT
+      trap 'exit 1' HUP INT TERM
 
-      for key in keys:
-          value = os.environ.get(key, defaults.get(key, ""))
-          if "\n" in value or "\r" in value:
-              raise ValueError(f"Valor invalido para {key}")
-          print(f"{key}={value}")
+      ssh-keygen -q -t ed25519 -N "" \
+        -C "gitlab-$CI_PROJECT_ID-$CI_PIPELINE_ID" \
+        -f "$TF_SSH_KEY"
+
+      export TF_VAR_aws_region="$AWS_DEFAULT_REGION"
+      export TF_VAR_ami_id="$AWS_EC2_AMI_ID"
+      RUNNER_SSH_CIDR="$(python3 - "$RUNNER_EGRESS_CIDR" <<'PY'
+      import ipaddress
+      import sys
+
+      value = sys.argv[1].strip()
+      if "/" not in value:
+          value = f"{value}/32"
+
+      try:
+          network = ipaddress.ip_network(value, strict=False)
+      except ValueError:
+          raise SystemExit("RUNNER_EGRESS_CIDR debe ser una IP IPv4, con /32 opcional")
+
+      if network.version != 4 or network.prefixlen != 32:
+          raise SystemExit("RUNNER_EGRESS_CIDR debe ser una IP IPv4 individual (/32)")
+
+      print(network.with_prefixlen)
       PY
+      )"
+      export TF_VAR_runner_ssh_cidr="$RUNNER_SSH_CIDR"
+      export TF_VAR_resource_suffix="$CI_PIPELINE_ID"
+      export TF_VAR_ssh_public_key="$(cat "$TF_SSH_KEY.pub")"
 
-      chmod 600 deployment.env
+      echo "Validando y planificando la infraestructura AWS..."
+      terraform -chdir=infra/aws init -input=false
+      terraform -chdir=infra/aws validate
+      terraform -chdir=infra/aws plan -input=false -out="$TF_TMP_DIR/deploy.tfplan"
+      terraform -chdir=infra/aws apply -input=false -auto-approve "$TF_TMP_DIR/deploy.tfplan"
 
-      scp -i "$AWS_SSH_PRIVATE_KEY" \
-        deployment.env \
-        "$AWS_EC2_USER@$AWS_EC2_HOST:~/fintech-nova/.env"
-
-      rm -f deployment.env
-
-      echo "Preparando autenticacion del dashboard..."
-      printf '%s\n' "$DASHBOARD_PASSWORD" |
-        htpasswd -B -i -c dashboard_users "$DASHBOARD_USER"
-
-      # Copiar primero a un archivo temporal que pertenece a ec2-user.
-      scp -i "$AWS_SSH_PRIVATE_KEY" \
-        dashboard_users \
-        "$AWS_EC2_USER@$AWS_EC2_HOST:~/dashboard_users.tmp"
-
-      # Moverlo al directorio definitivo con los permisos adecuados.
-      ssh -i "$AWS_SSH_PRIVATE_KEY" \
-        "$AWS_EC2_USER@$AWS_EC2_HOST" \
-        "sudo install -o 65532 -g 0 -m 640 ~/dashboard_users.tmp ~/fintech-nova/secrets/dashboard_users && rm -f ~/dashboard_users.tmp"
-
-      rm -f dashboard_users
-
-      echo "Generando certificado HTTPS..."
-      openssl req -x509 -nodes -newkey rsa:2048 \
-        -keyout local.key \
-        -out local.crt \
-        -days 365 \
-        -subj "/CN=$AWS_EC2_HOST" \
-        -addext "subjectAltName=IP:$AWS_EC2_HOST"
-
-      scp -i "$AWS_SSH_PRIVATE_KEY" \
-        local.crt local.key \
-        "$AWS_EC2_USER@$AWS_EC2_HOST:~/fintech-nova/certs/"
-
-      rm -f local.crt local.key
-
-      echo "Iniciando contenedores en AWS..."
-      ssh -i "$AWS_SSH_PRIVATE_KEY" \
-        "$AWS_EC2_USER@$AWS_EC2_HOST" \
-        "cd ~/fintech-nova && chmod 600 .env certs/local.key && chmod +x deploy.sh && ./deploy.sh"
+      export AWS_EC2_HOST="$(terraform -chdir=infra/aws output -raw public_ip)"
+      export AWS_EC2_USER="$(terraform -chdir=infra/aws output -raw ssh_user)"
+      export DEPLOY_SSH_KEY="$TF_SSH_KEY"
+      bash deploy-ci.sh
