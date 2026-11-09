@@ -1,8 +1,10 @@
 # Despliegue en AWS EC2
 
-Este documento describe la configuración utilizada para desplegar FinTech Nova en Amazon EC2 y el procedimiento utilizado para validar el funcionamiento de la aplicación.
+Este documento describe los modos de despliegue y conserva los datos de una prueba histórica de FinTech Nova en Amazon EC2.
 
-> **Provisionamiento desde CI:** la rama `deploy/terraform` automatiza EC2, Security Group y key pair con Terraform CLI en GitLab y luego ejecuta el deploy existente. Inicio del AWS Academy Learner Lab y renovación de sus credenciales siguen siendo manuales. Las instrucciones y variables actualizadas están en [DEPLOY.md](DEPLOY.md). La tabla siguiente conserva la configuración de una sesión anterior; no reutilizar esos IDs efímeros de AMI, VPC, subnet, SG o IP para sesiones nuevas.
+> **Rutas CI actuales:** `deploy_aws` conecta por SSH a una EC2 preexistente con `AWS_EC2_HOST`, `AWS_EC2_USER` y `AWS_SSH_PRIVATE_KEY`; `deploy_terraform` aprovisiona y despliega en otra EC2 con Terraform. Ambos son manuales y no deben apuntar al mismo host ni ejecutarse en paralelo contra una misma instancia. Los dos transfieren las imágenes del commit desde el runner y ejecutan las verificaciones HTTPS antes de imprimir la URL. Consultar variables e instrucciones en [DEPLOY.md](DEPLOY.md).
+>
+> La tabla y las evidencias siguientes son históricas; no reutilizar los IDs efímeros de AMI, VPC, subnet, SG o IP en sesiones nuevas. AWS Academy requiere iniciar el Lab y renovar credenciales temporalmente. Terraform mantiene el state `fintech-nova-sandbox`; un apply posterior puede reemplazar su instancia y borrar el disco raíz (incluida la DB local). El pipeline ya no incluye jobs de probe ni de destroy; los recursos pueden expirar/resetearse por ciclo de vida del Lab.
 
 ## 1. Instancia utilizada
 
@@ -130,13 +132,13 @@ camilagea/tp1-api-tarjetas:1.0.0
 camilagea/tp1-web:1.0.0
 ```
 
-La instancia EC2 descarga estas imágenes desde Docker Hub. No se realiza la construcción de las imágenes dentro de EC2.
+Este es el registro del procedimiento manual histórico. Los jobs actuales de CI publican en GitLab Container Registry y transfieren las imágenes desde el runner a EC2; no se construyen dentro de la instancia.
 
 ---
 
 ## 6. Configuración del despliegue
 
-Antes de transferir, genera el certificado y agrega el usuario de Traefik ejecutando localmente `bash prepare-deploy.sh <usuario-dashboard>`; el script solicita la contraseña de forma oculta. Para más detalles, consulta [DEPLOY.md](./DEPLOY.md).
+En el flujo manual histórico, antes de transferir se genera el certificado y agrega el usuario de Traefik ejecutando localmente `bash prepare-deploy.sh <usuario-dashboard>`; el script solicita la contraseña de forma oculta. Los jobs CI generan estos archivos temporalmente y transfieren los archivos runtime a EC2. Para más detalles, consulta [DEPLOY.md](./DEPLOY.md).
 
 El archivo `.env` incluye `DOCKER_USER` e `IMAGE_TAG`, que deben coincidir con el namespace y el tag usados al ejecutar `build.sh`, además de las credenciales de la aplicación. Desde la raíz del proyecto en la PC, se copian los archivos necesarios y se inicia el despliegue remoto:
 
@@ -169,15 +171,15 @@ Los archivos sensibles no se almacenan en Git. Al ejecutarse, `deploy.sh` restri
 
 ## 8. Inicio de los contenedores
 
-Una vez preparada la instancia, el script ejecuta el equivalente a:
+El procedimiento manual documentado originalmente describía `docker compose pull`. Sin embargo, el `deploy.sh` vigente no hace pull: requiere que las imágenes ya existan localmente y ejecuta `docker compose up -d --no-build --pull never`. Por eso ambos jobs de CI hacen pull desde el runner y transfieren las imágenes con `docker save`/`docker load` antes de invocar el script.
+
+Una vez preparada la instancia, el chequeo de estado equivale a:
 
 ```sh
 docker compose pull
 docker compose up -d
 docker compose ps
 ```
-
-`pull` descarga las imágenes publicadas.
 
 `up -d` crea e inicia los contenedores.
 

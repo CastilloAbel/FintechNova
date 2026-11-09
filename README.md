@@ -110,7 +110,7 @@ El build genera imágenes para `linux/amd64`, en correspondencia con la instanci
 
 ### Selección de imágenes
 
-Las referencias utilizan `DOCKER_USER` e `IMAGE_TAG` para seleccionar una cuenta de Docker Hub y una versión común:
+Las referencias utilizan `DOCKER_USER` e `IMAGE_TAG` para seleccionar el namespace del registry y una versión común. En el procedimiento histórico local se utilizaba Docker Hub; los jobs CI actuales configuran el path de GitLab Container Registry:
 
 ```yaml
 image: ${DOCKER_USER}/tp1-api-clientes:${IMAGE_TAG}
@@ -280,7 +280,7 @@ La autenticación protege el dashboard, que da acceso a la información y funcio
 
 ## 5. Automatización de construcción y publicación
 
-[build.sh](build.sh) automatiza la construcción y carga de las ocho imágenes en Docker Hub. Se ejecuta en la PC con Docker iniciado y una sesión previa en el registro:
+[build.sh](build.sh) conserva el flujo histórico de construcción y publicación de las ocho imágenes en Docker Hub. Se ejecuta en la PC con Docker iniciado y una sesión previa en el registro:
 
 ```bash
 docker login
@@ -432,7 +432,41 @@ Los finales de línea CRLF produjeron errores al ejecutar scripts en Linux. Se c
 La instalación del paquete completo `curl` entraba en conflicto con `curl-minimal` en Amazon Linux. El deploy se ajustó para instalar Docker y utilizar el curl disponible. El plugin Compose se descarga por separado.
 
 
-## 10. Resultado y documentación complementaria
+## 10. Pipeline actual de GitLab CI/CD
+
+Además del procedimiento histórico ejecutado desde una PC que se describe en las secciones anteriores, el repositorio cuenta con un pipeline GitLab que construye las imágenes para GitLab Container Registry, ejecuta controles y ofrece dos despliegues manuales. El bloque de Docker Hub de la sección 5 corresponde a la publicación histórica mediante `build.sh`; no describe el registry utilizado por los jobs actuales.
+
+### Flujo del pipeline
+
+Las etapas se ejecutan en este orden:
+
+1. **Test:** `prueba_pipeline` y `validar_terraform`. Este último ejecuta fmt/validate para `infra/aws`; no aprovisiona recursos ni valida el backend remoto.
+2. **Build:** ocho jobs independientes construyen y publican Traefik, MariaDB, las cinco APIs y Web en GitLab Container Registry con el tag del commit.
+3. **Security:** se valida Compose, se ejecutan Hadolint, Semgrep, Trivy, Yamllint y Gitleaks. Trivy analiza las imágenes del commit, pero es informativo: `allow_failure: true` permite que el pipeline avance aunque el escaneo falle. Los demás controles configurados como obligatorios sí pueden bloquear el avance.
+4. **Deploy:** aparecen los jobs manuales según la rama. Ambos esperan a que finalicen las etapas anteriores y transfieren las imágenes descargadas por el runner, porque `deploy.sh` usa `--pull never`.
+
+### Dos modos de despliegue
+
+| Job manual | Qué hace | Ramas habilitadas | Destino y credenciales |
+|---|---|---|---|
+| `deploy_aws` | Actualiza una instancia ya creada: prepara Docker/Compose, carga ocho imágenes por SSH, genera configuración runtime y ejecuta `deploy.sh`. No crea ni termina EC2. | `main`, `feature/deploy-aws`, `feature/test-deploy-ec2` | Host IPv4 existente mediante `AWS_EC2_HOST`, `AWS_EC2_USER` y `AWS_SSH_PRIVATE_KEY` (variable de archivo). |
+| `deploy_terraform` | Aprovisiona/actualiza una instancia distinta con Terraform y luego ejecuta el mismo flujo de preparación, transferencia y verificación. | `main`, `deploy/terraform` | Credenciales temporales de AWS Academy, `RUNNER_EGRESS_CIDR` y autenticación del state HTTP de GitLab. Genera una clave SSH efímera; no usa la clave del modo legacy. |
+
+Los dos jobs deben apuntar a instancias separadas. No se deben ejecutar en paralelo contra un mismo host; sus claves y credenciales tampoco son intercambiables. Al completar `deploy.sh` y las verificaciones HTTPS, cada job imprime `https://<IP>/` y la URL `https://<IP>/dashboard/`. El certificado es autofirmado.
+
+### State y ciclo de vida Terraform
+
+`deploy_terraform` conserva un state remoto fijo llamado `fintech-nova-sandbox`; no se crea un state por pipeline. El sufijo y el key pair cambian por ejecución, así que un apply sucesivo puede reemplazar la instancia registrada en ese state, en vez de acumular instancias independientes. La instancia tiene un volumen root EBS con `delete_on_termination`; el reemplazo elimina ese disco y se pierden la base local y los demás datos no respaldados. Respaldar lo que se necesite antes de aplicar de nuevo.
+
+No hay un job `destroy_ec2` ni una etapa de cleanup: el pipeline no ofrece una acción para terminar la instancia. AWS Academy puede expirar o resetear recursos al vencer la sesión. El `terraform init` de `deploy_terraform` valida el backend al iniciar el flujo. Si todavía existe el state desechable antiguo `fintech-state-probe`, eliminarlo manualmente desde GitLab solo después de comprobar que es el state de prueba.
+
+El job Terraform aplica limpieza local con `umask 077` y un `trap` para borrar la clave privada efímera, el plan, las credenciales temporales de Docker y otros archivos del runner, también si falla. No elimina desde EC2 el `.env`, el certificado ni las credenciales del dashboard que la aplicación necesita en runtime.
+
+Los scripts existentes —`build.sh`, `build-ci.sh`, `prepare-deploy.sh`, `setup-ec2.sh` y `deploy.sh`— se preservan. El pipeline construye las imágenes mediante sus jobs declarados; estos scripts siguen disponibles para sus procedimientos históricos y no se reemplazan por el nuevo deploy.
+
+Para el detalle de variables, operación por sesión del Sandbox y pasos de cada ruta, consultar [DEPLOY.md](DEPLOY.md). La política de seguridad y el estado de Trivy se describen en [SEGURIDAD.md](SEGURIDAD.md) y [ANALISIS.md](ANALISIS.md).
+
+## 11. Resultado y documentación complementaria
 
 La nueva prueba desde cero documenta la publicación de las ocho imágenes con el tag `prueba-2026-10-11`, la ejecución de los ocho servicios en una EC2 nueva, las respuestas HTTPS esperadas, el acceso público al frontend y al dashboard y la persistencia del cliente de prueba después de recrear MariaDB. La documentación de pruebas anteriores registra además las consultas externas de Pagos y Transacciones.
 

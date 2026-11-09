@@ -1,12 +1,25 @@
 # Build y despliegue en EC2
 
-## Provisionamiento automático con Terraform en GitLab CI
+## Despliegues manuales desde GitLab CI
 
-En la rama `deploy/terraform` (y luego de integrar el cambio, en `main`) el job manual `deploy_aws` crea la EC2 y el Security Group desde `infra/aws/` con Terraform CLI 1.17.1, y continúa con el flujo existente de transferencia de imágenes y ejecución de `setup-ec2.sh`/`deploy.sh`. Antes hay que iniciar el AWS Academy Learner Lab manualmente.
+El pipeline ofrece dos jobs manuales, con destinos y credenciales separados. Ambos esperan a que terminen correctamente las etapas anteriores de test, build y security. No se deben ejecutar contra el mismo host ni en paralelo si se configura accidentalmente el mismo destino.
 
-### State remoto y prueba sin AWS
+| Job | Destino y función | Ramas |
+|---|---|---|
+| `deploy_aws` | Despliega en una EC2 ya existente usando `AWS_EC2_HOST`, `AWS_EC2_USER` y `AWS_SSH_PRIVATE_KEY`. Descarga las ocho imágenes del Container Registry en el runner y las transfiere por SSH. | `main`, `feature/deploy-aws`, `feature/test-deploy-ec2` |
+| `deploy_terraform` | Usa Terraform para aprovisionar/actualizar otra EC2 y después instala Docker, transfiere imágenes y despliega. No utiliza las credenciales SSH de `deploy_aws`. | `main`, `deploy/terraform` |
 
-El proyecto usa el backend HTTP de Terraform State de GitLab. El job manual `terraform_state_probe` usa un state de prueba independiente y un recurso local `terraform_data`; no necesita credenciales AWS, no crea EC2 y no genera costos en AWS. Ejecutarlo y verificar que init/apply/destroy concluyan correctamente antes de provisionar. En GitLab Self-Managed, si el menú **Operate/Infrastructure → Terraform states** no está disponible o el probe falla por backend/auth, solicitar al administrador que habilite Terraform state. No reemplazarlo por state local temporal del runner.
+Tras ejecutar `deploy.sh` y sus verificaciones HTTPS, cada job imprime `https://<IP>/` y la URL del dashboard. El certificado es autofirmado.
+
+### Ruta legacy: `deploy_aws`
+
+Configura en GitLab las variables `AWS_EC2_HOST` (IPv4 pública), `AWS_EC2_USER` y `AWS_SSH_PRIVATE_KEY` (variable de tipo archivo), además de `DB_USER`, `DB_PASSWORD`, `MYSQL_ROOT_PASSWORD`, `DASHBOARD_USER`, `DASHBOARD_PASSWORD` y, si aplica, `IPAPI_TOKEN`. Protege y enmascara los valores sensibles. La EC2 debe estar activa, aceptar SSH desde el runner y ser Amazon Linux compatible con `setup-ec2.sh`.
+
+El runner inicia sesión en el Container Registry, descarga las imágenes etiquetadas con el commit y las carga en la instancia. Es necesario porque `deploy.sh` inicia Compose con `--pull never`; la EC2 no hace pull por sí misma. Este job no aprovisiona ni destruye la instancia.
+
+### Ruta Terraform: `deploy_terraform`
+
+En `main` o `deploy/terraform`, ejecutar manualmente `deploy_terraform`. Antes hay que iniciar AWS Academy Learner Lab y actualizar sus credenciales. `terraform init` valida el backend HTTP durante el propio deploy; ya no hay un job `terraform_state_probe` en el flujo.
 
 ### Variables requeridas por sesión
 
@@ -19,23 +32,30 @@ Después de iniciar el Sandbox, actualizar en **Settings → CI/CD → Variables
 | `AWS_SESSION_TOKEN` | Token temporal requerido por Academy | Masked y Protected |
 | `AWS_DEFAULT_REGION` | Región actual del Lab donde existe la AMI | Protected; no es secreto |
 | `RUNNER_EGRESS_CIDR` | IP IPv4 de salida actual del runner, por ejemplo `200.10.191.20` o `200.10.191.20/32` | Protected; confirmar el egress antes de cada sesión |
+| `TF_STATE_USERNAME` | Usuario del token de acceso al Terraform State de GitLab | Protected |
+| `TF_STATE_PASSWORD` | Token usado por el backend HTTP de Terraform State | Masked y Protected |
+| `DB_USER`, `DB_PASSWORD`, `MYSQL_ROOT_PASSWORD` | Credenciales de MariaDB | Masked y Protected |
+| `DASHBOARD_USER`, `DASHBOARD_PASSWORD` | Autenticación BasicAuth del dashboard | Password Masked y Protected |
+| `IPAPI_TOKEN` | Token de la integración externa de Transacciones, si se utiliza | Masked y Protected |
 
 La AMI predeterminada `ami-0c230065b91270bc6` es un identificador regional. Confirmar que corresponde a Amazon Linux 2023 x86_64 en `AWS_DEFAULT_REGION`; si no, sobrescribir el valor no secreto `AWS_EC2_AMI_ID` en variables CI/CD. La instancia se configura como `t3.small` con root volume gp3 de 20 GiB.
 
 Las variables Protected solo están disponibles en ramas protegidas. Proteger `deploy/terraform` mientras se valida esta implementación o ejecutar desde `main` después de integrar el cambio. Nunca pegar credenciales AWS o claves privadas en el YAML, el state o artifacts.
 
-### Ejecutar y destruir
+### Ejecutar y persistencia del state
 
 1. Iniciar el Learner Lab y refrescar las credenciales/variables de esa sesión.
-2. Ejecutar el pipeline y lanzar manualmente `terraform_state_probe`.
-3. Cuando el probe esté verde, lanzar `deploy_aws`. Terraform genera una clave Ed25519 efímera en el mismo job, sube solo la pública a AWS, crea SG/EC2, obtiene la IP y ejecuta el despliegue actual. La clave privada se borra al terminar el job; no se necesita `AWS_EC2_HOST` ni `AWS_SSH_PRIVATE_KEY`.
-4. Antes de cerrar o dejar expirar el Sandbox, ejecutar manualmente `destroy_ec2`. Usa el mismo state GitLab para destruir instancia, SG y key pair. Si el Sandbox expira primero, las credenciales pueden dejar de servir; revisar la consola del Lab y limpiar recursos remanentes si todavía existen.
+2. Lanzar manualmente `deploy_terraform`. Terraform genera una clave Ed25519 efímera, envía solo la pública a AWS, aprovisiona/actualiza la instancia y ejecuta el despliegue. La clave privada, el plan, la configuración Docker y otros archivos temporales se eliminan del runner incluso ante fallo.
+3. El state HTTP permanece fijo en `fintech-nova-sandbox`; no se crea un state por pipeline y no se acumulan instancias independientes administradas por el mismo flujo. Como el sufijo/key pair cambia por pipeline, un apply sucesivo puede reemplazar la instancia del state. El root EBS tiene `delete_on_termination`; al reemplazarla se pierde el disco y la base de datos local. Respaldar cualquier dato necesario antes de otro apply.
+4. No existe un job CI `destroy_ec2`: el pipeline no ofrece una acción para terminar la instancia. AWS Academy puede expirar o resetear los recursos al finalizar la sesión; revisar el estado y las reglas del Sandbox.
 
-El job recorta espacios y normaliza una IP IPv4 simple como `/32`; también acepta la forma explícita `/32`. Rechaza redes más amplias, IPv6 y valores malformados. El SG abre únicamente SSH desde esa dirección y HTTPS `443` desde Internet; HTTP, APIs y DB no se publican. El grupo de recursos GitLab `aws-sandbox` serializa deploy/destroy. La EC2 y el disco consumen cuotas/presupuesto del Lab; “Free tier eligible” no garantiza costo cero en AWS Academy.
+Si aún existe en GitLab el state de prueba antiguo `fintech-state-probe`, eliminarlo manualmente desde la interfaz de Terraform States solo después de confirmar que es el state desechable del probe. No se usa ni se modifica desde el pipeline.
+
+El job recorta espacios y normaliza una IP IPv4 simple como `/32`; también acepta la forma explícita `/32`. Rechaza redes más amplias, IPv6 y valores malformados. El SG abre únicamente SSH desde esa dirección y HTTPS `443` desde Internet; HTTP, APIs y DB no se publican. `resource_group: aws-sandbox` serializa los applies Terraform. La EC2 y el disco consumen cuotas/presupuesto del Lab; “Free tier eligible” no garantiza costo cero en AWS Academy.
 
 ## Procedimiento manual histórico (referencia)
 
-La sección siguiente describe el flujo manual anterior, que usaba Docker Hub y una PEM cargada por la persona. No es el flujo automatizado de la rama `deploy/terraform`: para ese flujo se deben seguir las instrucciones de Terraform anteriores. La clave privada efímera del pipeline nunca se copia a EC2.
+La sección siguiente describe el procedimiento histórico ejecutado desde una PC, que usaba Docker Hub y una PEM local. Se conserva como referencia junto con `build.sh`, `prepare-deploy.sh`, `setup-ec2.sh` y `deploy.sh`; no es el job CI `deploy_aws` restaurado, que usa Container Registry y una EC2 existente. La clave privada efímera de Terraform nunca se copia a EC2.
 
 El flujo manual usa tres scripts: `build.sh` construye y publica las imágenes desde la PC; `prepare-deploy.sh` crea localmente el certificado y el usuario del dashboard; `deploy.sh` se copia a EC2 y se ejecuta allí.
 

@@ -9,7 +9,7 @@ El pipeline analiza el código fuente, los ocho Dockerfiles, los archivos YAML y
 La política adoptada es la siguiente:
 
 - Semgrep bloquea hallazgos de severidad `ERROR`.
-- Trivy bloquea vulnerabilidades `HIGH` y `CRITICAL` que tengan una corrección disponible.
+- Trivy reporta vulnerabilidades `HIGH` y `CRITICAL` que tengan una corrección disponible, pero el job está configurado con `allow_failure: true` y no bloquea el pipeline.
 - Hadolint bloquea errores de Dockerfile; las sugerencias informativas quedan reportadas.
 - Yamllint bloquea errores de formato o sintaxis YAML.
 - Gitleaks bloquea secretos detectados en el repositorio.
@@ -47,13 +47,13 @@ Los JSON que quedaron descargados localmente corresponden a una ejecución anter
 | `tp1-api-transacciones` | 0 | 0 | 0 |
 | `tp1-web` | 4 | 0 | 4 |
 
-La tabla es histórica, no el resultado final. En la ejecución más reciente, posterior a la reconstrucción y publicación de las imágenes corregidas, el pipeline completo terminó correctamente. El job Trivy está configurado para fallar ante vulnerabilidades `HIGH` o `CRITICAL` con corrección disponible (`--ignore-unfixed`); por lo tanto, el resultado verde confirma que no quedaron hallazgos bloqueantes de ese tipo en las imágenes escaneadas. No se asignan conteos exactos de la última ejecución aquí porque sus JSON/artifacts no están descargados en este checkout.
+La tabla es histórica, no el resultado final. En una ejecución posterior a la reconstrucción y publicación de algunas imágenes, el pipeline completo terminó correctamente. Sin embargo, Trivy está configurado con `allow_failure: true`: un estado verde del pipeline no demuestra por sí solo que las imágenes estuvieran libres de vulnerabilidades corregibles. No se asignan conteos de la ejecución actual porque sus JSON/artifacts no están descargados en este checkout.
 
 Los hallazgos provienen principalmente de paquetes de las imágenes base y de dependencias de aplicación: Alpine, Red Hat, Ubuntu, Debian, OpenSSL, Go `stdlib`, paquetes Python y Node.js, dependencias Java de Jackson y componentes del runtime .NET.
 
-El job descarga la base de vulnerabilidades de Trivy y, cuando corresponde, la base de Java. Estas bases se utilizan para identificar vulnerabilidades de sistema y de dependencias. El escaneo ignora vulnerabilidades sin versión corregida, pero mantiene el bloqueo para los casos `HIGH` y `CRITICAL` que sí tienen actualización disponible.
+El job descarga la base de vulnerabilidades de Trivy y, cuando corresponde, la base de Java. Estas bases se utilizan para identificar vulnerabilidades de sistema y de dependencias. El escaneo ignora vulnerabilidades sin versión corregida. Los hallazgos `HIGH` y `CRITICAL` corregibles se informan en los artifacts, pero actualmente no bloquean el pipeline.
 
-El fallo del job ante vulnerabilidades corregibles es intencional: evita que una imagen con problemas conocidos llegue al despliegue. Los casos sin parche disponible no se ocultan; quedan reportados para su evaluación y eventual aceptación formal del riesgo.
+La configuración actual es deliberadamente informativa durante esta etapa: el job puede fallar por vulnerabilidades corregibles y aun así permitir que continúe el pipeline. Los casos sin parche disponible se omiten del umbral de fallo de Trivy y los reportes disponibles deben revisarse antes de aceptar el riesgo.
 
 Para revisar localmente artifacts descargados, `find-vulnerabilities.ps1` lee los JSON `security/trivy/trivy-report-*.json` y muestra severidad, CVE, paquete, versión instalada y versión corregida. Es una ayuda de lectura: no cambia los reportes ni reemplaza el escaneo automático del pipeline; requiere `jq.exe` disponible en PATH.
 
@@ -107,8 +107,8 @@ La gestión de credenciales se realiza mediante variables protegidas y enmascara
 
 ## Resultado y decisión
 
-Los controles de Semgrep, Hadolint, Yamllint y Gitleaks integran validaciones automáticas de código, contenedores, configuración y secretos. Trivy analiza las ocho imágenes que se publican en el registry antes de permitir que el pipeline avance al despliegue. El pipeline final fue confirmado como exitoso por el equipo; los hallazgos de la tabla anterior son la línea base previa, no el estado final.
+Los controles de Semgrep, Hadolint, Yamllint y Gitleaks integran validaciones automáticas de código, contenedores, configuración y secretos. Trivy analiza las ocho imágenes del commit y publica sus reportes, pero `allow_failure: true` hace que sea informativo: un pipeline exitoso no implica que Trivy no haya encontrado vulnerabilidades. Los hallazgos de la tabla anterior son una línea base histórica, no el estado actual.
 
-La decisión del equipo es bloquear el flujo ante vulnerabilidades `HIGH` o `CRITICAL` corregibles y ante hallazgos SAST `ERROR`. De esta manera el despliegue manual del job posterior no queda habilitado como resultado de un pipeline que haya omitido controles de seguridad.
+La política efectiva bloquea el flujo ante hallazgos SAST `ERROR` y errores de los controles configurados como obligatorios. Trivy no es un gate en la configuración actual: sus hallazgos deben revisarse manualmente y no impiden que el job de despliegue manual quede habilitado.
 
 Los detalles técnicos de cada ejecución se conservan en los artifacts de GitLab de los jobs `analizar_codigo_semgrep`, `analizar_imagenes_trivy`, `analizar_dockerfiles`, `analizar_archivos_yaml` y `detectar_secretos`. No se suben al repositorio los JSON ni los logs generados por esas ejecuciones.
