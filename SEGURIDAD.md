@@ -343,3 +343,7 @@ La arquitectura aplica las siguientes medidas:
 - imágenes Docker sin credenciales;
 - archivos sensibles excluidos del repositorio.
 - análisis SAST, vulnerabilidades de imágenes, Dockerfiles, YAML y secretos integrados al pipeline.
+
+## Actualización CI/CD y Terraform (noviembre 2026)
+
+El nuevo `test_api_clientes` usa una base de datos simulada y no necesita secretos. `validar_terraform` verifica formato y configuración, pero no reemplaza una revisión de permisos IAM, Security Groups ni el análisis de riesgos. Trivy continúa con `allow_failure: true`: las vulnerabilidades HIGH/CRITICAL pueden producir advertencias sin bloquear el despliegue. Las credenciales temporales de AWS y del backend HTTP de Terraform se suministran mediante variables de GitLab, nunca deben subirse al repositorio. El runner transfiere las imágenes a EC2 mediante SSH y `docker load`; la EC2 no hace login directo al registry. Revisar el informe de Trivy antes de aceptar riesgos.

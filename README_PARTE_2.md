@@ -86,3 +86,17 @@ Se preservan los scripts históricos `build.sh`, `build-ci.sh`, `prepare-deploy.
 - [AWS_EC2.md](AWS_EC2.md): configuración y evidencias históricas de EC2.
 - [SEGURIDAD.md](SEGURIDAD.md) y [ANALISIS.md](ANALISIS.md): controles, riesgos y resultados de seguridad.
 - [ERRORES.md](ERRORES.md): incidencias y soluciones documentadas.
+
+## Tests automáticos agregados (API Clientes)
+
+El job `test_api_clientes` ejecuta tres pruebas con `unittest` y el cliente de pruebas de Flask **antes de Build**: salud (`GET /` → 200), listado simulado de clientes (`GET /clientes` → 200) y cliente inexistente (`GET /clientes/999` → 404). La conexión a MariaDB se simula mediante `unittest.mock`, por lo que el job no necesita una base real ni credenciales. Si falla una prueba, el job falla y no avanza a Build. No reemplaza las verificaciones HTTPS posteriores al despliegue.
+
+Para ejecutarlas localmente: `cd aplicaciones-contenedores/api-clientes`, instalar `requirements.txt` y correr `python -m unittest discover -s tests -p 'test_*.py' -v`.
+
+## Evidencias de la Parte 2 y Terraform
+
+- [Extracto del despliegue exitoso del 9/11/2026](docs/evidencias/parte-2-despliegue-terraform.md): ocho contenedores activos, base healthy y siete verificaciones HTTPS con el tag `9e4ea77f`.
+- Capturas de Parte 1: conservadas en `docs/evidencias/`, **no corresponden a la última sesión Terraform**.
+- **Pendiente antes de entregar:** agregar capturas reales de la misma sesión de AWS Academy para el pipeline completo, job `deploy_terraform` (incluyendo `terraform apply`), EC2 creada y aplicación abierta en HTTPS. Guardarlas en `docs/evidencias/` y enlazarlas aquí.
+
+Nota: Terraform está integrado como ruta alternativa de aprovisionamiento. El job `deploy_terraform` se inicia manualmente; luego aprovisiona y ejecuta el despliegue automáticamente.

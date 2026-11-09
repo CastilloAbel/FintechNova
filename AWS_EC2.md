@@ -412,3 +412,7 @@ La instancia utilizada fue `FinTech-Nova`, de tipo `t3.medium` sobre Amazon Linu
 El Security Group permite SSH por el puerto `22` desde una IP autorizada y HTTPS por `443`. No existe una regla de entrada para HTTP `80`.
 
 ![Security Group](docs/evidencias/10-ec2-security-group.png)
+
+## Última ejecución documentada — Terraform (9/11/2026)
+
+El job `deploy_terraform` figuró exitoso en el pipeline mostrado. El log de despliegue confirmó los ocho contenedores activos, MariaDB healthy, HTTPS 200 para web y cinco APIs y 401 esperado para dashboard sin credenciales. IP temporal registrada: `44.201.197.71`, tag `9e4ea77f`. El log compartido no contiene el detalle de `terraform apply`, por lo que no se documentan IDs de recursos no verificados. Ver [evidencia textual](docs/evidencias/parte-2-despliegue-terraform.md). **Pendiente:** capturas de la misma sesión del pipeline, Terraform, EC2 y navegador.

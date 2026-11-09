@@ -331,3 +331,7 @@ OK HTTPS /api/tarjetas
 ```
 
 Los ocho contenedores quedaron en ejecución y la aplicación pudo utilizarse correctamente mediante HTTPS.
+
+## Estado de las pruebas de noviembre 2026
+
+En el último despliegue compartido, el job finalizó con `Job succeeded`; no se observa un error de ejecución del deploy. El log muestra advertencias de OpenSSH por intercambio de claves no poscuántico: no bloquearon la transferencia ni el despliegue. Trivy aparece con advertencia en el pipeline y tiene `allow_failure: true`; revisar su reporte antes de clasificar los hallazgos. Se incorporaron pruebas de API Clientes con mocks para validar rutas antes del Build sin depender de MariaDB.
