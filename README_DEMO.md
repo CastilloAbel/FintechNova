@@ -51,9 +51,144 @@ El pipeline se define en [`.gitlab-ci.yml`](.gitlab-ci.yml) y usa cuatro stages:
 
 Se incorporaron pruebas para las APIs desarrolladas en Python, Node.js, Java, .NET y Go. Cubren comportamientos básicos y comprobaciones HTTP, según el servicio. **No equivalen a pruebas exhaustivas de carga, recuperación o integración entre todos los componentes.**
 
+#### Ejemplo de prueba: API Clientes
+
+```yml
+test_api_clientes:
+  stage: test
+  image: python:3.11-slim
+  tags: [$RUNNER_TAG]
+  before_script:
+    - python -m pip install --no-cache-dir -r aplicaciones-contenedores/api-clientes/requirements.txt
+  script:
+    - cd aplicaciones-contenedores/api-clientes
+    - python -m unittest discover -s tests -p 'test_*.py' -v
+```
+Como ejemplo de las pruebas automatizadas, utilizamos la API de Clientes, desarrollada en Python con Flask.
+
+**Código de referencia:** `aplicaciones-contenedores/api-clientes/tests/`
+
+Las pruebas están definidas en la clase `ClientesApiTests` y se ejecutan desde el job `test_api_clientes` del pipeline.
+
+Para ejecutar estas pruebas utilizamos app.test_client() de Flask, que permite probar las rutas de la API sin levantar un servidor HTTP. En las pruebas que necesitan consultar clientes, utilizamos mocks para simular la respuesta de MariaDB, sin conectarnos a una base de datos real.
+
+Esto permite comprobar el comportamiento del código de Clientes antes de construir las imágenes Docker y desplegar la aplicación.
+
+```python
+class ClientesApiTests(unittest.TestCase):
+    def setUp(self):
+        app.config["TESTING"] = True
+        self.client = app.test_client()
+
+    @patch("main.mysql.connect")
+    def test_listar_clientes(self, mock_connect):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [
+            {"id": 1, "nombre": "Cliente de prueba"}
+        ]
+        mock_connect.return_value.cursor.return_value = cursor
+
+        response = self.client.get("/clientes")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json()[0]["nombre"],
+            "Cliente de prueba"
+        )
+        cursor.execute.assert_called_once_with(
+            "SELECT * FROM clientes"
+        )
+```
+En el ejemplo test_listar_clientes, primero simulamos que la base de datos devuelve un cliente llamado "Cliente de prueba". Luego ejecutamos una consulta a la ruta /clientes y verificamos que la API responda con HTTP 200 y devuelva el nombre esperado. También comprobamos que se haya ejecutado la consulta SQL SELECT * FROM clientes.
+
+De esta manera, validamos el comportamiento del código de la API sin necesidad de levantar MariaDB.
+
+#### Validación de Terraform
+
+Además de las pruebas sobre las APIs, el pipeline incluye el job `validar_terraform`, que comprueba la configuración de la infraestructura antes del despliegue.
+
+```yaml
+validar_terraform:
+  stage: test
+  image:
+    name: hashicorp/terraform:1.17.1
+    entrypoint: [""]
+  tags: [$RUNNER_TAG]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "deploy/terraform"'
+  before_script:
+    - apk add --no-cache ca-certificates
+  script:
+    - terraform fmt -check -recursive infra
+    - terraform -chdir=infra/aws init -backend=false -input=false -lockfile=readonly
+    - terraform -chdir=infra/aws validate
+```
+
+Este job realiza tres operaciones principales:
+
+- **`terraform fmt -check`:** comprueba que los archivos de Terraform respeten el formato esperado.
+- **`terraform init -backend=false`:** inicializa Terraform sin configurar el backend remoto.
+- **`terraform validate`:** verifica que la configuración de Terraform sea válida.
+
+Estas comprobaciones se ejecutan en las ramas `main` y `deploy/terraform`. No crean recursos en AWS, sino que permiten detectar problemas de configuración antes del despliegue.
+
+
 ### Publicación y trazabilidad
 
 Las ocho imágenes se publican en GitLab Container Registry con etiquetas vinculadas al commit. El proceso permite asociar código, imágenes y ejecución del pipeline, en lugar de depender de identificar manualmente qué versión se instaló.
+
+
+#### Construcción automatizada de imágenes Docker
+
+Para construir las ocho imágenes utilizamos un job reutilizable llamado `.build_image`, definido en `.gitlab-ci.yml`.
+
+Este job contiene las instrucciones comunes para iniciar sesión en GitLab Container Registry, construir una imagen Docker y publicarla con dos etiquetas: la del commit y `latest`.
+
+```yaml
+.build_image:
+  stage: build
+  image: docker:29.8.1-cli
+  tags: [$BUILD_RUNNER_TAG]
+  script:
+    - test -n "$CI_REGISTRY" || { echo "CI_REGISTRY vacío"; exit 1; }
+    - test -n "$CI_PROJECT_PATH" || { echo "CI_PROJECT_PATH vacío"; exit 1; }
+    - export IMAGE_REF="$CI_REGISTRY/$CI_PROJECT_PATH/$IMAGE_NAME"
+    - echo "Construyendo y publicando $IMAGE_REF:$IMAGE_TAG"
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+    - docker build --pull --platform linux/amd64 -t "$IMAGE_REF:$IMAGE_TAG" -t "$IMAGE_REF:latest" -f "$DOCKERFILE" "$BUILD_CONTEXT"
+    - docker push "$IMAGE_REF:$IMAGE_TAG"
+    - docker push "$IMAGE_REF:latest"
+```
+
+**¿Qué realiza este job?**
+
+- `docker login`: autentica al runner en GitLab Container Registry.
+- `docker build`: construye la imagen utilizando el Dockerfile y el contexto correspondientes.
+- `docker push`: publica la imagen en el registro.
+- `IMAGE_TAG`: identifica la imagen mediante el identificador corto del commit (`CI_COMMIT_SHORT_SHA`).
+- `latest`: identifica la versión publicada con esa etiqueta, aunque puede cambiar con nuevas construcciones.
+
+#### Ejemplo: construcción de la API Clientes
+
+Cada servicio define su propio job, que reutiliza las instrucciones anteriores mediante `extends`.
+
+```yaml
+build_clientes:
+  extends: .build_image
+  variables:
+    BUILD_RUNNER_TAG: runner-without-dind
+    IMAGE_NAME: tp1-api-clientes
+    DOCKERFILE: aplicaciones-contenedores/api-clientes/Dockerfile
+    BUILD_CONTEXT: aplicaciones-contenedores/api-clientes
+```
+
+En este ejemplo, `build_clientes` reutiliza el job `.build_image`, pero indica qué imagen construir, qué Dockerfile utilizar y dónde se encuentra el código necesario.
+
+El mismo mecanismo se utiliza para los demás servicios: Pagos, Facturas, Tarjetas, Transacciones, web, MariaDB y Traefik.
+
+Como los trabajos de construcción son independientes, GitLab puede ejecutarlos en paralelo cuando hay runners disponibles.
+
+
 
 ## 3. Seguridad: hallazgos y decisiones
 
@@ -64,6 +199,76 @@ Las ocho imágenes se publican en GitLab Container Registry con etiquetas vincul
 | Secretos | Gitleaks | Credenciales expuestas en el repositorio |
 | Dockerfiles | Hadolint | Configuraciones y prácticas riesgosas |
 | YAML / Compose | Yamllint y validación Compose | Errores de configuración |
+
+
+### Implementación de controles de seguridad
+
+Los controles se ejecutan automáticamente mediante jobs definidos en `.gitlab-ci.yml`.
+
+#### Análisis de código con Semgrep
+
+Semgrep analiza el código fuente para detectar posibles patrones inseguros.
+
+```yaml
+analizar_codigo_semgrep:
+  stage: security
+  image: semgrep/semgrep:latest
+  tags: [$RUNNER_TAG]
+  script:
+    - semgrep --config auto --severity ERROR --json --output semgrep-report.json --error . || status=$?
+    - test -s semgrep-report.json
+    - exit "${status:-0}"
+  artifacts:
+    when: always
+    paths: [semgrep-report.json]
+    expire_in: 1 week
+```
+
+Este job ejecuta Semgrep sobre el proyecto, genera un reporte JSON y permite detectar hallazgos de severidad ERROR. El reporte queda disponible como artefacto del pipeline durante una semana.
+
+
+#### Análisis de imágenes con Trivy
+
+Trivy analiza las imágenes Docker publicadas en GitLab Container Registry para identificar vulnerabilidades conocidas.
+
+```yaml
+analizar_imagenes_trivy:
+  stage: security
+  allow_failure: true
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  tags: [$RUNNER_TAG]
+  script:
+    - export IMAGE_REF="$CI_REGISTRY/$CI_PROJECT_PATH"
+    - export TRIVY_USERNAME="$CI_REGISTRY_USER"
+    - export TRIVY_PASSWORD="$CI_REGISTRY_PASSWORD"
+    - status=0
+    - |
+      for image in tp1-traefik tp1-db tp1-api-clientes tp1-api-pagos tp1-api-facturas tp1-api-tarjetas tp1-api-transacciones tp1-web; do
+        trivy image \
+          --username "$TRIVY_USERNAME" \
+          --password "$TRIVY_PASSWORD" \
+          --format json \
+          --output "trivy-report-$image.json" \
+          --exit-code 1 \
+          --ignore-unfixed \
+          --severity HIGH,CRITICAL \
+          "$IMAGE_REF/$image:$IMAGE_TAG" || status=$?
+      done
+    - exit "$status"
+  artifacts:
+    when: always
+    paths: [trivy-report-*.json]
+    expire_in: 1 week
+```
+
+Este job recorre las ocho imágenes Docker y busca vulnerabilidades de severidad HIGH y CRITICAL.
+
+Los resultados se guardan en reportes JSON que pueden consultarse desde GitLab.
+
+Actualmente, el job utiliza `allow_failure: true`, por lo que los hallazgos no impiden necesariamente que el pipeline continúe. Además, `--ignore-unfixed` excluye del análisis reportado las vulnerabilidades sin corrección disponible.
+
 
 **Hallazgo real:** Trivy detectó **cuatro vulnerabilidades HIGH** en imágenes de MariaDB y Facturas. Se revisaron los paquetes afectados, se actualizaron los Dockerfiles, se reconstruyeron las imágenes y se repitieron los análisis. El job de referencia finalizó correctamente.
 
