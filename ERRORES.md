@@ -335,3 +335,22 @@ Los ocho contenedores quedaron en ejecución y la aplicación pudo utilizarse co
 ## Estado de las pruebas de noviembre 2026
 
 En el último despliegue compartido, el job finalizó con `Job succeeded`; no se observa un error de ejecución del deploy. El log muestra advertencias de OpenSSH por intercambio de claves no poscuántico: no bloquearon la transferencia ni el despliegue. Trivy aparece con advertencia en el pipeline y tiene `allow_failure: true`; revisar su reporte antes de clasificar los hallazgos. Se incorporaron pruebas de API Clientes con mocks para validar rutas antes del Build sin depender de MariaDB.
+
+
+## 16. CI/CD — fallo inicial del smoke test de API Tarjetas
+
+**Problema:** el job `test_api_tarjetas` falló con `curl: (7) Failed to connect to 127.0.0.1 port 18084`, aunque el log de .NET mostraba que la API iniciaba en `http://0.0.0.0:8080`.
+
+**Causa:** el test consultaba un puerto distinto al de la aplicación y el tiempo de compilación retrasaba el arranque.
+
+**Solución:** modificar `aplicaciones-contenedores/api-tarjetas/tests/smoke.sh` para compilar primero (`dotnet build`), ejecutar sin recompilar (`dotnet run --no-build`), fijar el puerto `8080` y esperar hasta que responda el endpoint. **Resultado:** `test_api_tarjetas` en verde en el pipeline #16409.
+
+## 17. CI/CD — Trivy detectó paquetes vulnerables en dos imágenes
+
+**Problema:** `analizar_imagenes_trivy` quedaba en naranja por cuatro detecciones HIGH (`CVE-2026-109518`) en MariaDB y API Facturas.
+
+**Causa:** paquetes `apt` y bibliotecas relacionadas en las imágenes base requerían actualizaciones de seguridad. El job tiene `allow_failure: true`, por eso podía mostrar advertencia sin bloquear el pipeline.
+
+**Solución:** agregar actualización de los paquetes afectados en ambos Dockerfiles, reconstruir las imágenes y volver a ejecutar Trivy. **Resultado:** los jobs de build y Trivy quedaron en verde en el pipeline #16409 (commit `19b4346`).
+
+**Pendiente separado:** revisar el aviso moderado `NU1902` de `MySqlConnector 2.3.7` en API Tarjetas.

@@ -307,7 +307,7 @@ El pipeline ejecuta los controles en el stage `security`, después de construir 
 | Control | Herramienta | Alcance | Resultado |
 |---|---|---|---|
 | `analizar_codigo_semgrep` | Semgrep | Código fuente, Dockerfiles, YAML y lenguajes de las APIs | Bloquea hallazgos `ERROR` y genera `semgrep-report.json`. |
-| `analizar_imagenes_trivy` | Trivy | Las ocho imágenes del commit | Bloquea vulnerabilidades corregibles `HIGH` y `CRITICAL`; genera un JSON por imagen. |
+| `analizar_imagenes_trivy` | Trivy | Las ocho imágenes del commit | Analiza vulnerabilidades corregibles `HIGH` y `CRITICAL` y genera un JSON por imagen; con `allow_failure: true`, un hallazgo no bloquea el pipeline. |
 | `analizar_dockerfiles` | Hadolint | Los ocho Dockerfiles declarados explícitamente | Bloquea errores de buenas prácticas Docker. |
 | `analizar_archivos_yaml` | Yamllint | CI, Compose y configuración de Traefik | Bloquea errores de sintaxis y formato YAML. |
 | `detectar_secretos` | Gitleaks | Árbol del repositorio | Bloquea secretos detectados y genera un reporte. |
@@ -347,3 +347,16 @@ La arquitectura aplica las siguientes medidas:
 ## Actualización CI/CD y Terraform (noviembre 2026)
 
 El nuevo `test_api_clientes` usa una base de datos simulada y no necesita secretos. `validar_terraform` verifica formato y configuración, pero no reemplaza una revisión de permisos IAM, Security Groups ni el análisis de riesgos. Trivy continúa con `allow_failure: true`: las vulnerabilidades HIGH/CRITICAL pueden producir advertencias sin bloquear el despliegue. Las credenciales temporales de AWS y del backend HTTP de Terraform se suministran mediante variables de GitLab, nunca deben subirse al repositorio. El runner transfiere las imágenes a EC2 mediante SSH y `docker load`; la EC2 no hace login directo al registry. Revisar el informe de Trivy antes de aceptar riesgos.
+
+
+## Corrección de vulnerabilidades detectadas en el TP — noviembre 2026
+
+En los análisis previos de Trivy se identificaron **cuatro hallazgos HIGH** asociados a `CVE-2026-109518`: dos en la imagen de MariaDB (paquetes `apt` y `libapt-pkg6.0t64`) y dos en la imagen de API Facturas (`apt` y `libapt-pkg6.0`).
+
+Se actualizaron los Dockerfiles para ejecutar `apt-get update` y `apt-get install --only-upgrade` de los paquetes afectados durante la construcción de las imágenes, sin cambiar las versiones principales de MariaDB y Java. Los cambios se subieron en el commit `19b4346`.
+
+En el pipeline **#16409**, los jobs `build_db`, `build_facturas` y `analizar_imagenes_trivy` aparecieron en verde y el pipeline finalizó aprobado. Esto demuestra que el análisis configurado no detectó un hallazgo que hiciera fallar ese job en esa ejecución; **no equivale a una garantía de ausencia de todas las vulnerabilidades**. Para auditar los paquetes y CVE exactos, consultar los artifacts JSON de Trivy de ese pipeline.
+
+En el log de pruebas de Tarjetas también se observó una advertencia `NU1902` sobre `MySqlConnector 2.3.7` (severidad moderada). No fue la causa del fallo del smoke test; queda como **mejora pendiente de evaluación**, revisando una versión corregida compatible y volviendo a ejecutar las pruebas. La configuración actual de Trivy se centra en `HIGH` y `CRITICAL`, por lo que no se debe afirmar que cubre todos los avisos moderados.
+
+Para el alcance de las pruebas automatizadas y la explicación del pipeline, consultar [README_PARTE_2.md](README_PARTE_2.md).

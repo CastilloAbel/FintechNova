@@ -14,7 +14,7 @@ El orden de stages definido en `.gitlab-ci.yml` es `test` → `build` → `secur
 
 | Stage | Jobs y propósito |
 |---|---|
-| `test` | `prueba_pipeline` comprueba la ejecución básica del pipeline. `validar_terraform` ejecuta `fmt` y `validate` sobre `infra/aws`; no aprovisiona recursos ni comprueba el backend remoto. |
+| `test` | `prueba_pipeline` comprueba la ejecución básica; cinco jobs (`test_api_clientes`, `test_api_pagos`, `test_api_facturas`, `test_api_tarjetas` y `test_api_transacciones`) ejecutan pruebas automatizadas. `validar_terraform` ejecuta `fmt` y `validate` sobre `infra/aws`; no aprovisiona recursos ni comprueba el backend remoto. |
 | `build` | Ocho jobs independientes construyen y publican en GitLab Container Registry las imágenes de Traefik, MariaDB, las cinco APIs y Web. Se etiqueta cada versión con el SHA corto del commit y también se actualiza `latest`. |
 | `security` | `validar_compose`, Hadolint, Semgrep, Trivy, Yamllint y Gitleaks revisan configuración, Dockerfiles, código, imágenes y secretos. Los reportes disponibles se publican como artifacts. |
 | `deploy` | Ofrece dos jobs manuales según la rama: `deploy_aws` para una instancia existente y `deploy_terraform` para una instancia gestionada por Terraform. |
@@ -81,27 +81,48 @@ Las variables protegidas solo están disponibles en ramas protegidas. Revisar la
 
 Se preservan los scripts históricos `build.sh`, `build-ci.sh`, `prepare-deploy.sh`, `setup-ec2.sh` y `deploy.sh`. Los jobs de GitLab construyen las imágenes con sus plantillas CI; el helper [deploy-ci.sh](deploy-ci.sh) comparte únicamente la fase de transferencia y despliegue y no reemplaza esos scripts históricos.
 
-- [README.md](README.md): arquitectura, implementación, pruebas y resumen de las dos rutas.
+- [README.md](README.md): documentación original de la Parte 1 (se conserva sin modificaciones).
 - [DEPLOY.md](DEPLOY.md): variables, instrucciones operativas y procedimiento de cada modo.
 - [AWS_EC2.md](AWS_EC2.md): configuración y evidencias históricas de EC2.
 - [SEGURIDAD.md](SEGURIDAD.md) y [ANALISIS.md](ANALISIS.md): controles, riesgos y resultados de seguridad.
 - [ERRORES.md](ERRORES.md): incidencias y soluciones documentadas.
 
-## Tests automáticos agregados (API Clientes)
+## Pruebas automatizadas de las cinco APIs
 
-El job `test_api_clientes` ejecuta tres pruebas con `unittest` y el cliente de pruebas de Flask **antes de Build**: salud (`GET /` → 200), listado simulado de clientes (`GET /clientes` → 200) y cliente inexistente (`GET /clientes/999` → 404). La conexión a MariaDB se simula mediante `unittest.mock`, por lo que el job no necesita una base real ni credenciales. Si falla una prueba, el job falla y no avanza a Build. No reemplaza las verificaciones HTTPS posteriores al despliegue.
+Se incorporaron pruebas para las cinco APIs, ejecutadas en el stage `test` antes de construir las imágenes. Cada lenguaje utiliza sus propias herramientas; no se requiere una instancia real de MariaDB para estas pruebas.
 
-Para ejecutarlas localmente: `cd aplicaciones-contenedores/api-clientes`, instalar `requirements.txt` y correr `python -m unittest discover -s tests -p 'test_*.py' -v`.
+| API | Tecnología | Job | Qué se comprueba |
+|---|---|---|---|
+| Clientes | Python / Flask | `test_api_clientes` | Tres casos: salud (`GET /`), listado simulado y cliente inexistente, utilizando `unittest` y mocks. |
+| Pagos | Node.js | `test_api_pagos` | Dos pruebas HTTP con `node:test`. |
+| Facturas | Java / Spring Boot | `test_api_facturas` | Dos pruebas del controlador con JUnit y Mockito. |
+| Tarjetas | .NET | `test_api_tarjetas` | Smoke test: compila, inicia la API y comprueba su respuesta HTTP. |
+| Transacciones | Go | `test_api_transacciones` | Prueba del formato de las respuestas HTTP. |
+
+**Resultado comprobado:** los cinco jobs pasaron en el pipeline **#16409**, correspondiente al commit `19b4346` de la rama `feature/tests-documentacion`. Estas pruebas validan comportamientos puntuales, **no** sustituyen pruebas de integración con MariaDB ni las verificaciones posteriores al despliegue.
+
+Durante la primera ejecución falló `test_api_tarjetas`: el script consultaba el puerto `18084` mientras la aplicación escuchaba en `8080`, y la compilación consumía parte del tiempo de espera. Se corrigió el script para compilar primero, iniciar sin recompilar y esperar la respuesta en el puerto adecuado. El job pasó en la siguiente ejecución.
 
 ## Evidencias de la Parte 2 y Terraform
 
 - [Extracto del despliegue exitoso del 9/11/2026](docs/evidencias/parte-2-despliegue-terraform.md): ocho contenedores activos, base healthy y siete verificaciones HTTPS con el tag `9e4ea77f`.
 - Capturas de Parte 1: conservadas en `docs/evidencias/`, **no corresponden a la última sesión Terraform**.
-- **Pendiente antes de entregar:** agregar capturas reales de la misma sesión de AWS Academy para el pipeline completo, job `deploy_terraform` (incluyendo `terraform apply`), EC2 creada y aplicación abierta en HTTPS. Guardarlas en `docs/evidencias/` y enlazarlas aquí.
+- **Para la entrega:** conservar capturas verificables de la misma sesión de AWS Academy para el pipeline completo, job `deploy_terraform` (incluyendo `terraform apply`), EC2 creada y aplicación abierta en HTTPS. Guardarlas en `docs/evidencias/` y enlazarlas aquí.
 
 Nota: Terraform está integrado como ruta alternativa de aprovisionamiento. El job `deploy_terraform` se inicia manualmente; luego aprovisiona y ejecuta el despliegue automáticamente.
 
 
-### Pruebas automáticas por API
+### Resultado del pipeline de CI/CD
 
-El pipeline ejecuta tests de Clientes (Python), Pagos (Node.js), Facturas (Java), Tarjetas (.NET) y Transacciones (Go). Son pruebas unitarias y smoke tests básicos, sin conexión real a MariaDB. Ver `docs/evidencias/plan-tests-y-trivy.md` para alcance y evidencias pendientes.
+El pipeline **#16409** (commit `19b4346`) terminó aprobado según la verificación realizada en GitLab: cinco jobs de pruebas de APIs en verde, ocho jobs de construcción en verde y controles de seguridad en verde, incluido `analizar_imagenes_trivy`. La etapa de despliegue es manual y su ejecución debe acreditarse por separado con el job y las evidencias de EC2.
+
+### Guía breve para la exposición (hasta 10 minutos)
+
+1. **Objetivo y arquitectura:** explicar que la Parte 2 automatiza la validación y el despliegue de los ocho servicios existentes.
+2. **Pipeline:** mostrar `.gitlab-ci.yml` y las etapas `test → build → security → deploy`.
+3. **Tests:** abrir el pipeline #16409 y mostrar los cinco jobs aprobados; aclarar que son pruebas básicas sin base de datos real.
+4. **Build y seguridad:** mostrar las ocho imágenes y los controles; explicar cómo se corrigieron las vulnerabilidades detectadas por Trivy.
+5. **Terraform y AWS:** mostrar la ruta manual `deploy_terraform`, el state y la evidencia de una ejecución real, sin confundirla con el pipeline de tests.
+6. **Cierre:** destacar automatización, reproducibilidad y las limitaciones conocidas (tests básicos, certificados autofirmados y Trivy informativo por `allow_failure: true`).
+
+Ver también [plan de tests y Trivy](docs/evidencias/plan-tests-y-trivy.md).
