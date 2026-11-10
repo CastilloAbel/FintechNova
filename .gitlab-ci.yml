@@ -30,6 +30,41 @@ test_api_clientes:
     - cd aplicaciones-contenedores/api-clientes
     - python -m unittest discover -s tests -p 'test_*.py' -v
 
+# Pruebas automatizadas por API, independientes de MariaDB.
+test_api_pagos:
+  stage: test
+  image: node:22-alpine
+  tags: [$RUNNER_TAG]
+  script:
+    - cd aplicaciones-contenedores/api-pagos
+    - npm ci --no-audit --no-fund
+    - node --test tests/*.test.js
+
+test_api_facturas:
+  stage: test
+  image: maven:3.9.9-eclipse-temurin-21
+  tags: [$RUNNER_TAG]
+  script:
+    - cd aplicaciones-contenedores/api-facturas
+    - mvn -B test
+
+test_api_tarjetas:
+  stage: test
+  image: mcr.microsoft.com/dotnet/sdk:8.0
+  tags: [$RUNNER_TAG]
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl >/dev/null
+  script:
+    - sh aplicaciones-contenedores/api-tarjetas/tests/smoke.sh
+
+test_api_transacciones:
+  stage: test
+  image: golang:1.26.10-alpine3.24
+  tags: [$RUNNER_TAG]
+  script:
+    - cd aplicaciones-contenedores/api-transacciones
+    - go test ./... -v
+
 validar_terraform:
   stage: test
   image:

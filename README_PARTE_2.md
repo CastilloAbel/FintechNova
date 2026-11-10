@@ -100,3 +100,8 @@ Para ejecutarlas localmente: `cd aplicaciones-contenedores/api-clientes`, instal
 - **Pendiente antes de entregar:** agregar capturas reales de la misma sesión de AWS Academy para el pipeline completo, job `deploy_terraform` (incluyendo `terraform apply`), EC2 creada y aplicación abierta en HTTPS. Guardarlas en `docs/evidencias/` y enlazarlas aquí.
 
 Nota: Terraform está integrado como ruta alternativa de aprovisionamiento. El job `deploy_terraform` se inicia manualmente; luego aprovisiona y ejecuta el despliegue automáticamente.
+
+
+### Pruebas automáticas por API
+
+El pipeline ejecuta tests de Clientes (Python), Pagos (Node.js), Facturas (Java), Tarjetas (.NET) y Transacciones (Go). Son pruebas unitarias y smoke tests básicos, sin conexión real a MariaDB. Ver `docs/evidencias/plan-tests-y-trivy.md` para alcance y evidencias pendientes.
