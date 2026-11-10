@@ -16,6 +16,10 @@ app.use((_req, res) => {
 });
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`API de pagos escuchando en el puerto ${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`API de pagos escuchando en el puerto ${PORT}`);
+  });
+}
+
+module.exports = app;

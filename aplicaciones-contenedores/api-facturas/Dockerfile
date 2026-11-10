@@ -8,6 +8,10 @@ RUN mvn -B -DskipTests package
 
 FROM eclipse-temurin:21-jre-jammy AS runtime
 
+RUN apt-get update \
+    && apt-get install -y --only-upgrade apt libapt-pkg6.0 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 RUN useradd --system --uid 10001 --create-home appuser
 COPY --from=build --chown=appuser:appuser /build/target/api-facturas.jar /app/app.jar
