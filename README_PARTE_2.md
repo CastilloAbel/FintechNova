@@ -1,128 +1,235 @@
-# FinTech Nova — Parte 2: Integración y despliegue continuo
+# FinTech Nova
 
-**Grupo 19 · Camila Gea (82327) · Abel Castillo (90322)**
+## Parte 2 — Integración continua, seguridad y despliegue en AWS
 
-## Objetivo
+**Trabajo Práctico Final | Desarrollo y Operaciones (DevOps) | Grupo 19**
 
-En esta etapa se incorporó GitLab CI/CD para validar el proyecto, construir y publicar sus imágenes, ejecutar controles de seguridad y facilitar el despliegue en AWS EC2. El pipeline complementa los procedimientos manuales de la Parte 1 y conserva los scripts existentes para su uso histórico.
+FinTech Nova es una aplicación de servicios financieros basada en microservicios. En la primera etapa del proyecto se contenerizaron sus componentes con Docker y se integraron mediante Docker Compose. Esta segunda etapa incorpora automatización de pruebas, construcción y publicación de imágenes, análisis de seguridad y despliegue en AWS mediante infraestructura como código.
 
-La arquitectura desplegada continúa formada por ocho servicios: Traefik, MariaDB, una interfaz web y cinco APIs independientes. El acceso externo se realiza mediante HTTPS en el puerto 443; las APIs y la base de datos se comunican por la red interna de Docker.
+## 1. Objetivos
 
-## Flujo del pipeline
+- Automatizar la validación de cambios mediante GitLab CI/CD.
+- Incorporar pruebas para las cinco APIs de la aplicación.
+- Construir y publicar imágenes Docker identificables por versión.
+- Analizar código, dependencias, imágenes y configuraciones para detectar problemas de seguridad.
+- Gestionar la infraestructura de AWS con Terraform.
+- Desplegar la aplicación y verificar automáticamente su funcionamiento.
 
-El orden de stages definido en `.gitlab-ci.yml` es `test` → `build` → `security` → `deploy`.
+## 2. Arquitectura de la aplicación
 
-| Stage | Jobs y propósito |
-|---|---|
-| `test` | `prueba_pipeline` comprueba la ejecución básica; cinco jobs (`test_api_clientes`, `test_api_pagos`, `test_api_facturas`, `test_api_tarjetas` y `test_api_transacciones`) ejecutan pruebas automatizadas. `validar_terraform` ejecuta `fmt` y `validate` sobre `infra/aws`; no aprovisiona recursos ni comprueba el backend remoto. |
-| `build` | Ocho jobs independientes construyen y publican en GitLab Container Registry las imágenes de Traefik, MariaDB, las cinco APIs y Web. Se etiqueta cada versión con el SHA corto del commit y también se actualiza `latest`. |
-| `security` | `validar_compose`, Hadolint, Semgrep, Trivy, Yamllint y Gitleaks revisan configuración, Dockerfiles, código, imágenes y secretos. Los reportes disponibles se publican como artifacts. |
-| `deploy` | Ofrece dos jobs manuales según la rama: `deploy_aws` para una instancia existente y `deploy_terraform` para una instancia gestionada por Terraform. |
+La solución está formada por ocho contenedores:
 
-Los jobs de build pueden correr en paralelo según la capacidad de los runners. Los despliegues ocurren después de completar las etapas previas. Ambos cargan las imágenes en EC2 desde el runner mediante `docker save` y `docker load`, ya que el `deploy.sh` actual usa `docker compose up --pull never` y no descarga imágenes desde el registry.
+| Componente | Tecnología | Responsabilidad |
+| --- | --- | --- |
+| API Clientes | Python / Flask | Gestión y consulta de clientes |
+| API Pagos | Node.js | Operaciones de pagos |
+| API Facturas | Java / Spring Boot | Gestión de facturas |
+| API Tarjetas | C# / .NET | Operaciones de tarjetas |
+| API Transacciones | Go | Registro y consulta de transacciones |
+| Web | Aplicación web | Interfaz de usuario |
+| Base de datos | MariaDB | Persistencia de información |
+| Proxy inverso | Traefik | Enrutamiento de solicitudes y acceso HTTPS |
 
-## Dos rutas manuales de despliegue
+Los componentes se ejecutan en contenedores Docker y se comunican a través de la red definida en Docker Compose. Traefik recibe las solicitudes externas y las dirige a los servicios correspondientes.
 
-Los jobs representan destinos diferentes, con credenciales y claves SSH separadas. No deben configurarse para desplegar a la misma instancia; tampoco deben ejecutarse simultáneamente contra un mismo host.
+## 3. Pipeline CI/CD
 
-| Job | Modo | Ramas | Variables y destino |
-|---|---|---|---|
-| `deploy_aws` | Despliega sobre una EC2 ya existente. Prepara Docker/Compose, transfiere las imágenes y archivos runtime, ejecuta `deploy.sh` y sus verificaciones. No crea ni termina la instancia. | `main`, `feature/deploy-aws`, `feature/test-deploy-ec2` | `AWS_EC2_HOST` (IPv4), `AWS_EC2_USER` y `AWS_SSH_PRIVATE_KEY` (variable de archivo), además de credenciales de aplicación y Registry. |
-| `deploy_terraform` | Inicializa Terraform, genera una clave efímera, aprovisiona o actualiza infraestructura, y luego utiliza el mismo flujo de despliegue de aplicación. | `main`, `deploy/terraform` | Credenciales temporales de AWS Academy, `RUNNER_EGRESS_CIDR`, autenticación del state HTTP y credenciales de aplicación/Registry. No usa el host ni la clave SSH del modo legacy. |
+La automatización está definida en [`.gitlab-ci.yml`](.gitlab-ci.yml) y organizada en cuatro etapas: **test**, **build**, **security** y **deploy**.
 
-### Flujo compartido de aplicación
+```mermaid
+flowchart LR
+    A["Commit GitLab"] --> B["TEST<br/>5 APIs"]
+    B --> C["BUILD<br/>8 imágenes"]
+    C --> D["SECURITY<br/>Análisis"]
+    D --> E["DEPLOY<br/>Terraform + AWS"]
 
-Para reducir duplicación, ambos jobs invocan el script raíz [deploy-ci.sh](deploy-ci.sh). Este helper:
+    classDef inicio fill:#1e293b,color:#fff,stroke:#64748b
+    classDef etapa fill:#164e63,color:#fff,stroke:#0891b2
+    classDef despliegue fill:#0f766e,color:#fff,stroke:#14b8a6
+    class A inicio
+    class B,C,D etapa
+    class E despliegue
+```
 
-1. Valida las variables requeridas, la IP IPv4 del host, el usuario del dashboard y el archivo de clave SSH.
-2. Prepara `known_hosts` y una configuración SSH temporal con verificación estricta de host.
-3. Ejecuta `setup-ec2.sh` en la instancia.
-4. Inicia sesión en GitLab Container Registry, descarga las ocho imágenes del commit y las carga en EC2.
-5. Copia Compose y `deploy.sh`, genera `.env`, el hash de BasicAuth y el certificado TLS, y transfiere esos archivos runtime.
-6. Ejecuta `deploy.sh`, que exige los ocho contenedores activos y respuestas HTTPS esperadas para la web, las APIs y el dashboard.
-7. Solo tras completar correctamente las verificaciones muestra `https://<IP>/` y `https://<IP>/dashboard/`.
+La definición de etapas en `.gitlab-ci.yml` es:
 
-Terraform mantiene aparte su `init`, `plan` y `apply`; el modo legacy proporciona el host y la clave ya existentes. Los archivos temporales del runner se crean con permisos restrictivos y se eliminan mediante `trap`, incluso si el helper falla. Los archivos runtime transferidos a EC2 no se borran porque los necesita el servicio.
-
-## State y ciclo de vida Terraform
-
-`deploy_terraform` utiliza el state HTTP fijo `fintech-nova-sandbox`; no se crea un state por pipeline. El sufijo y el key pair cambian entre ejecuciones, por lo que un apply sucesivo puede reemplazar la instancia registrada en ese state, en lugar de acumular instancias independientes. La instancia usa un disco raíz EBS con `delete_on_termination`; si se reemplaza, se pierde el disco y la base de datos local. Respaldar cualquier dato necesario antes de un nuevo apply.
-
-El pipeline no incluye `terraform_state_probe`, `destroy_ec2` ni una etapa de cleanup. El primer `terraform init` dentro de `deploy_terraform` comprueba el acceso al backend. No hay un botón de CI para terminar EC2; AWS Academy puede expirar o resetear los recursos al vencer la sesión. Si el state antiguo `fintech-state-probe` aún existe, verificar que sea el state de prueba antes de eliminarlo manualmente desde GitLab.
-
-## Controles de seguridad y política
-
-| Herramienta/job | Alcance | Comportamiento actual |
-|---|---|---|
-| Docker Compose (`validar_compose`) | Sintaxis y configuración de Compose | Falla ante errores de configuración. |
-| Hadolint (`analizar_dockerfiles`) | Los ocho Dockerfiles | El umbral `error` determina los hallazgos que fallan el job. |
-| Semgrep (`analizar_codigo_semgrep`) | Código, Dockerfiles y configuración | Considera errores de severidad `ERROR`; genera reporte JSON. |
-| Trivy (`analizar_imagenes_trivy`) | Las ocho imágenes del commit | Examina `HIGH` y `CRITICAL`, ignora las no corregibles y genera reportes JSON. Tiene `allow_failure: true`: es informativo y su fallo no bloquea el pipeline ni los deploys manuales. |
-| Yamllint (`analizar_archivos_yaml`) | `.gitlab-ci.yml`, Compose y configuración YAML de Traefik | Falla ante problemas detectados por la configuración del job. |
-| Gitleaks (`detectar_secretos`) | Árbol del repositorio | Busca secretos y genera un reporte redactado. |
-
-Los artifacts de análisis se conservan según la configuración del pipeline. La política efectiva no presenta Trivy como un gate: sus resultados deben revisarse, pero un pipeline verde no prueba por sí solo que las imágenes estén libres de vulnerabilidades. Los hallazgos de los controles configurados como obligatorios sí pueden impedir el avance.
-
-## Variables de CI/CD
-
-Configurar los secretos en **Settings → CI/CD → Variables**; usar variables protegidas y enmascaradas cuando corresponda. Nunca incorporar credenciales reales, claves privadas ni `.env` al repositorio.
-
-| Grupo | Variables principales |
-|---|---|
-| Deploy legacy | `AWS_EC2_HOST`, `AWS_EC2_USER`, `AWS_SSH_PRIVATE_KEY` como variable de archivo. |
-| Terraform/AWS Academy | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_DEFAULT_REGION`, `RUNNER_EGRESS_CIDR`. Renovar las credenciales temporales al iniciar cada sesión del Lab. |
-| State de Terraform | `TF_STATE_USERNAME`, `TF_STATE_PASSWORD`. El backend permanece en `fintech-nova-sandbox`. |
-| Aplicación | `DB_USER`, `DB_PASSWORD`, `MYSQL_ROOT_PASSWORD`, `DASHBOARD_USER`, `DASHBOARD_PASSWORD` y, si aplica, `IPAPI_TOKEN`. |
-| Registry | Variables automáticas de GitLab `CI_REGISTRY`, `CI_REGISTRY_USER` y `CI_REGISTRY_PASSWORD`. |
-
-Las variables protegidas solo están disponibles en ramas protegidas. Revisar la configuración de ramas y variables antes de ejecutar el job manual correspondiente.
-
-## Scripts y documentación relacionada
-
-Se preservan los scripts históricos `build.sh`, `build-ci.sh`, `prepare-deploy.sh`, `setup-ec2.sh` y `deploy.sh`. Los jobs de GitLab construyen las imágenes con sus plantillas CI; el helper [deploy-ci.sh](deploy-ci.sh) comparte únicamente la fase de transferencia y despliegue y no reemplaza esos scripts históricos.
-
-- [README.md](README.md): documentación original de la Parte 1 (se conserva sin modificaciones).
-- [DEPLOY.md](DEPLOY.md): variables, instrucciones operativas y procedimiento de cada modo.
-- [AWS_EC2.md](AWS_EC2.md): configuración y evidencias históricas de EC2.
-- [SEGURIDAD.md](SEGURIDAD.md) y [ANALISIS.md](ANALISIS.md): controles, riesgos y resultados de seguridad.
-- [ERRORES.md](ERRORES.md): incidencias y soluciones documentadas.
-
-## Pruebas automatizadas de las cinco APIs
-
-Se incorporaron pruebas para las cinco APIs, ejecutadas en el stage `test` antes de construir las imágenes. Cada lenguaje utiliza sus propias herramientas; no se requiere una instancia real de MariaDB para estas pruebas.
-
-| API | Tecnología | Job | Qué se comprueba |
-|---|---|---|---|
-| Clientes | Python / Flask | `test_api_clientes` | Tres casos: salud (`GET /`), listado simulado y cliente inexistente, utilizando `unittest` y mocks. |
-| Pagos | Node.js | `test_api_pagos` | Dos pruebas HTTP con `node:test`. |
-| Facturas | Java / Spring Boot | `test_api_facturas` | Dos pruebas del controlador con JUnit y Mockito. |
-| Tarjetas | .NET | `test_api_tarjetas` | Smoke test: compila, inicia la API y comprueba su respuesta HTTP. |
-| Transacciones | Go | `test_api_transacciones` | Prueba del formato de las respuestas HTTP. |
-
-**Resultado comprobado:** los cinco jobs pasaron en el pipeline **#16409**, correspondiente al commit `19b4346` de la rama `feature/tests-documentacion`. Estas pruebas validan comportamientos puntuales, **no** sustituyen pruebas de integración con MariaDB ni las verificaciones posteriores al despliegue.
-
-Durante la primera ejecución falló `test_api_tarjetas`: el script consultaba el puerto `18084` mientras la aplicación escuchaba en `8080`, y la compilación consumía parte del tiempo de espera. Se corrigió el script para compilar primero, iniciar sin recompilar y esperar la respuesta en el puerto adecuado. El job pasó en la siguiente ejecución.
-
-## Evidencias de la Parte 2 y Terraform
-
-- [Extracto del despliegue exitoso del 9/11/2026](docs/evidencias/parte-2-despliegue-terraform.md): ocho contenedores activos, base healthy y siete verificaciones HTTPS con el tag `9e4ea77f`.
-- Capturas de Parte 1: conservadas en `docs/evidencias/`, **no corresponden a la última sesión Terraform**.
-- **Para la entrega:** conservar capturas verificables de la misma sesión de AWS Academy para el pipeline completo, job `deploy_terraform` (incluyendo `terraform apply`), EC2 creada y aplicación abierta en HTTPS. Guardarlas en `docs/evidencias/` y enlazarlas aquí.
-
-Nota: Terraform está integrado como ruta alternativa de aprovisionamiento. El job `deploy_terraform` se inicia manualmente; luego aprovisiona y ejecuta el despliegue automáticamente.
+```yaml
+stages:
+  - test
+  - build
+  - security
+  - deploy
+```
 
 
-### Resultado del pipeline de CI/CD
+| Etapa | Actividades | Propósito |
+| --- | --- | --- |
+| **Test** | Pruebas automatizadas de las cinco APIs y validación de Terraform | Detectar errores antes de construir imágenes |
+| **Build** | Construcción de ocho imágenes Docker y publicación en GitLab Container Registry | Generar artefactos versionados y reutilizables |
+| **Security** | Análisis de código, Dockerfiles, imágenes, secretos y configuraciones | Identificar riesgos y problemas de configuración |
+| **Deploy** | Aprovisionamiento de infraestructura, despliegue y comprobaciones | Publicar y validar la aplicación en AWS |
 
-El pipeline **#16409** (commit `19b4346`) terminó aprobado según la verificación realizada en GitLab: cinco jobs de pruebas de APIs en verde, ocho jobs de construcción en verde y controles de seguridad en verde, incluido `analizar_imagenes_trivy`. La etapa de despliegue es manual y su ejecución debe acreditarse por separado con el job y las evidencias de EC2.
+Los trabajos independientes pueden ejecutarse en paralelo. La etapa de despliegue integra Terraform, AWS EC2, Docker Compose y verificaciones HTTPS.
 
-### Guía breve para la exposición (hasta 10 minutos)
+### 3.1. Pruebas automatizadas
 
-1. **Objetivo y arquitectura:** explicar que la Parte 2 automatiza la validación y el despliegue de los ocho servicios existentes.
-2. **Pipeline:** mostrar `.gitlab-ci.yml` y las etapas `test → build → security → deploy`.
-3. **Tests:** abrir el pipeline #16409 y mostrar los cinco jobs aprobados; aclarar que son pruebas básicas sin base de datos real.
-4. **Build y seguridad:** mostrar las ocho imágenes y los controles; explicar cómo se corrigieron las vulnerabilidades detectadas por Trivy.
-5. **Terraform y AWS:** mostrar la ruta manual `deploy_terraform`, el state y la evidencia de una ejecución real, sin confundirla con el pipeline de tests.
-6. **Cierre:** destacar automatización, reproducibilidad y las limitaciones conocidas (tests básicos, certificados autofirmados y Trivy informativo por `allow_failure: true`).
+Se incorporaron pruebas acordes a la tecnología de cada API:
 
-Ver también [plan de tests y Trivy](docs/evidencias/plan-tests-y-trivy.md).
+| API | Herramienta / enfoque |
+| --- | --- |
+| Clientes | `unittest` y mocks de Python |
+| Pagos | `node:test` y verificaciones HTTP |
+| Facturas | JUnit y Mockito |
+| Tarjetas | Smoke test con compilación, inicio del servicio y consulta HTTP |
+| Transacciones | Pruebas HTTP con herramientas de Go |
+
+Estas pruebas comprueban comportamientos básicos y permiten detectar fallas tempranas. No reemplazan las pruebas de integración completas, de rendimiento ni de recuperación.
+
+### 3.2. Construcción y registro de imágenes
+
+La etapa **build** genera las ocho imágenes de la solución y las publica en **GitLab Container Registry**. Se utilizan etiquetas asociadas al commit, lo que permite relacionar cada versión de la aplicación con el código fuente que la originó.
+
+En el despliegue actual, las imágenes se transfieren desde el runner hacia EC2 y se cargan en Docker antes de iniciar los servicios con Compose.
+
+## 4. Seguridad
+
+El pipeline integra herramientas de análisis estático y revisión de artefactos:
+
+| Herramienta | Control realizado |
+| --- | --- |
+| **Semgrep** | Análisis estático de código y configuraciones |
+| **Hadolint** | Revisión de buenas prácticas en Dockerfiles |
+| **Trivy** | Detección de vulnerabilidades conocidas en imágenes |
+| **Gitleaks** | Detección de posibles secretos en el repositorio |
+| **Yamllint** | Validación de archivos YAML |
+| **Docker Compose** | Validación de la configuración de servicios |
+
+### 4.1. Vulnerabilidades detectadas y corregidas
+
+Durante las ejecuciones iniciales, **Trivy detectó vulnerabilidades de severidad HIGH** en las imágenes de MariaDB y API Facturas.
+
+A partir de los reportes se identificaron paquetes afectados y se actualizaron los Dockerfiles para incorporar correcciones disponibles. Posteriormente se reconstruyeron las imágenes y se repitieron los análisis. En el pipeline de referencia, el job de Trivy finalizó correctamente.
+
+El análisis de Trivy está configurado con `allow_failure: true`, por lo que actualmente funciona como control informativo y no como bloqueo obligatorio del despliegue. Una mejora futura es definir umbrales de severidad que impidan publicar imágenes con hallazgos críticos.
+
+Las credenciales de AWS y demás valores sensibles se gestionan mediante variables de CI/CD, sin incluir secretos reales en el código fuente.
+
+Más información en [SEGURIDAD.md](SEGURIDAD.md).
+
+## 5. Infraestructura en AWS con Terraform
+
+La infraestructura se define como código mediante **Terraform**, con archivos versionados en [`infra/aws/`](infra/aws/).
+
+El entorno utilizado para el despliegue comprende:
+
+| Recurso | Configuración |
+| --- | --- |
+| Proveedor cloud | Amazon Web Services (AWS Academy Learner Lab) |
+| Región | `us-east-1` |
+| Cómputo | Amazon EC2 `t3.small` |
+| Sistema de ejecución | Docker y Docker Compose |
+| Entrada a la aplicación | HTTPS, puerto `443` |
+| Administración | SSH, puerto `22`, restringido a la IP autorizada del runner |
+| Estado de Terraform | Backend HTTP remoto |
+
+La definición de infraestructura como código permite versionar los cambios, revisar configuraciones y reproducir el aprovisionamiento de recursos.
+
+### 5.1. Estrategias de despliegue
+
+El pipeline contempla dos trabajos manuales alternativos:
+
+- **`deploy_aws`:** despliegue sobre una instancia EC2 ya existente.
+- **`deploy_terraform`:** aprovisionamiento o actualización de infraestructura mediante Terraform y posterior despliegue de la aplicación.
+
+Para la validación final se utilizó **`deploy_terraform`**.
+
+## 6. Despliegue y verificación
+
+El proceso de despliegue prepara la instancia EC2, transfiere las imágenes y los archivos necesarios y ejecuta Docker Compose para iniciar los ocho contenedores.
+
+Después del inicio, el job verifica el estado de los servicios y realiza solicitudes HTTPS a la interfaz y a las APIs.
+
+### Resultados obtenidos
+
+**Pipeline:** [#16413](https://labsys.frc.utn.edu.ar/gitlab/desarrollo-y-operaciones-devops/tps-2026/grupo-19/tp-1/-/pipelines/16413)  
+**Commit:** `0dc279f0` (`main`)  
+**Despliegue Terraform:** [Job #104532](https://labsys.frc.utn.edu.ar/gitlab/desarrollo-y-operaciones-devops/tps-2026/grupo-19/tp-1/-/jobs/104532) — exitoso
+
+| Verificación | Resultado |
+| --- | --- |
+| Pruebas automatizadas de las cinco APIs | Correctas |
+| Construcción de las ocho imágenes | Correcta |
+| Controles de seguridad del pipeline | Jobs finalizados correctamente |
+| Contenedores de la aplicación | Ocho iniciados |
+| MariaDB | Estado `healthy` |
+| Interfaz web (`/`) | HTTP `200` |
+| API Clientes (`/api/clientes`) | HTTP `200` |
+| API Pagos (`/api/pagos`) | HTTP `200` |
+| API Facturas (`/api/facturas`) | HTTP `200` |
+| API Transacciones (`/api/transacciones`) | HTTP `200` |
+| API Tarjetas (`/api/tarjetas`) | HTTP `200` |
+| Dashboard Traefik (`/dashboard/`) | HTTP `401` — autenticación requerida |
+
+El job `deploy_terraform` finalizó con el mensaje de despliegue verificado correctamente. El pipeline puede figurar como **Blocked** porque `deploy_aws`, que es una alternativa manual, permanece sin ejecutar; esto no afecta el resultado exitoso del job de Terraform.
+
+La IP pública de la instancia depende de la sesión de AWS Academy y puede cambiar al reiniciar o recrear los recursos.
+
+## 7. Evidencias
+
+Las capturas se almacenan en [`docs/evidencias/`](docs/evidencias/) y documentan la ejecución real del proyecto. Los nombres y rutas son los siguientes:
+
+| Evidencia | Archivo | Sección relacionada |
+| --- | --- | --- |
+| Arquitectura general del sistema | `arquitectura-devops.png` | 2. Arquitectura |
+| Pipeline principal con sus etapas | `pipeline-main.png` | 3. Pipeline CI/CD |
+| Resultado del análisis de Trivy | `seguridad-trivy.png` | 4. Seguridad |
+| Instancia EC2 en ejecución | `aws-ec2-instancia.png` | 5. Infraestructura |
+| Reglas de entrada de EC2 | `aws-ec2-seguridad.png` | 5. Infraestructura |
+| Log de despliegue y verificaciones HTTPS | `deploy-terraform.png` | 6. Despliegue |
+| Interfaz de FinTech Nova en AWS | `aplicacion-aws.png` | 6. Despliegue |
+
+Las capturas del pipeline y del despliegue se pueden consultar también en los enlaces a GitLab incluidos en la sección 6.
+
+<!-- Al incorporar cada captura al repositorio, se puede mostrar dentro del README con:
+![Pipeline principal](docs/evidencias/pipeline-main.png)
+![Análisis de seguridad Trivy](docs/evidencias/seguridad-trivy.png)
+![Instancia EC2](docs/evidencias/aws-ec2-instancia.png)
+![Reglas de seguridad EC2](docs/evidencias/aws-ec2-seguridad.png)
+![Despliegue Terraform](docs/evidencias/deploy-terraform.png)
+![Aplicación desplegada](docs/evidencias/aplicacion-aws.png)
+-->
+
+## 8. Beneficios y oportunidades de mejora
+
+La incorporación de CI/CD y de infraestructura como código aporta:
+
+- **Menos tareas manuales:** pruebas, construcción, análisis y verificaciones ejecutados desde el pipeline.
+- **Mayor trazabilidad:** asociación entre commits, imágenes construidas y despliegues.
+- **Detección temprana:** identificación de errores y vulnerabilidades antes de publicar cambios.
+- **Reproducibilidad:** infraestructura y configuración de servicios definidas en archivos versionados.
+- **Validación del resultado:** comprobaciones HTTP posteriores al despliegue.
+
+En un sistema financiero, una interrupción puede impedir consultas y operaciones, generar costos operativos y afectar la confianza de los usuarios. La automatización reduce algunos riesgos, pero no garantiza disponibilidad continua.
+
+### Próximos pasos
+
+- Incorporar pruebas de integración, carga y recuperación.
+- Implementar monitoreo y alertas.
+- Evaluar redundancia para evitar depender de una única instancia EC2.
+- Definir políticas de bloqueo para vulnerabilidades críticas.
+- Mejorar la gestión de certificados TLS, respaldos y recuperación ante fallos.
+
+## 9. Documentación complementaria
+
+| Documento | Contenido |
+| --- | --- |
+| [README.md](README.md) | Documentación de la primera etapa |
+| [SEGURIDAD.md](SEGURIDAD.md) | Herramientas de análisis y correcciones |
+| [ERRORES.md](ERRORES.md) | Problemas encontrados y soluciones |
+| [AWS_EC2.md](AWS_EC2.md) | Configuración del entorno AWS |
+| [DEPLOY.md](DEPLOY.md) | Procedimientos de despliegue |
+| [ANALISIS.md](ANALISIS.md) | Análisis técnico del proyecto |
+
+---
+
+**FinTech Nova — Grupo 19 | Trabajo Práctico Final de DevOps**
