@@ -10,5 +10,9 @@ RUN mkdir -p /src/gosu \
 
 FROM mariadb:11.8
 
+RUN apt-get update \
+    && apt-get install -y --only-upgrade apt libapt-pkg6.0t64 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=gosu-build /gosu /usr/local/bin/gosu
 COPY init-scripts/ /docker-entrypoint-initdb.d/
