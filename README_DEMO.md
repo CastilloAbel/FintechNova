@@ -17,6 +17,8 @@ En la primera entrega, FinTech Nova ya podía ejecutarse con Docker Compose, per
 | Infraestructura configurada mediante pasos operativos | Recursos de AWS definidos en Terraform | Reproducibilidad y auditoría |
 | Verificación manual de funcionamiento | Comprobaciones HTTPS posteriores al despliegue | Evidencia inmediata del estado de los servicios |
 
+**Tiempo observado:** el procedimiento manual anterior podía tomar aproximadamente **1 hora** y no incluía controles de seguridad automatizados. En la ejecución de referencia, el pipeline completo —`test`, `build`, `security` y `deploy`— tardó **22 minutos**. Esto representa una reducción aproximada de **38 minutos (cerca del 63 %)** para esa ejecución. Es una comparación orientativa: los tiempos pueden variar según el runner, la red, la caché y el estado de AWS Academy.
+
 ## 1. Arquitectura y alcance
 
 La solución comprende cinco APIs de negocio (Clientes, Pagos, Facturas, Tarjetas y Transacciones), una web, una base de datos MariaDB y Traefik como punto de entrada HTTPS. Los ocho componentes se ejecutan en contenedores dentro de una instancia EC2.
