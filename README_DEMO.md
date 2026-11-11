@@ -292,7 +292,7 @@ Terraform define la infraestructura de AWS en [`infra/aws/`](infra/aws/). La eje
 
 **Política de controles:** las pruebas y los controles configurados como obligatorios bloquean el avance si fallan. Trivy analiza vulnerabilidades `HIGH` y `CRITICAL` corregibles y genera artifacts, pero mantiene `allow_failure: true`; por lo tanto, sus hallazgos son informativos y no bloquean por sí solos el despliegue. Los reportes se revisan por separado y no se considera un pipeline verde como prueba de ausencia de CVEs.
 
-**Política de ramas:** `validar_origen_mr` permite integrar a `main` únicamente MRs desde `feat/*`. El deploy se activa por `push` a `main`, no por el nombre de la rama fuente. La protección de `main` debe impedir pushes directos para que el flujo sea exclusivamente por MR.
+**Política de ramas:** `validar_origen_mr` permite integrar a `main` únicamente MRs desde `feature/*`. El deploy se activa por `push` a `main`, no por el nombre de la rama fuente. La protección de `main` debe impedir pushes directos para que el flujo sea exclusivamente por MR.
 
 ![Despliegue y verificaciones en GitLab](docs/evidencias/deploy-terraform.png)
 

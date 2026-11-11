@@ -443,13 +443,13 @@ Las etapas se ejecutan en este orden:
 1. **Test:** `prueba_pipeline` y `validar_terraform`. Este último ejecuta fmt/validate para `infra/aws`; no aprovisiona recursos ni valida el backend remoto.
 2. **Build:** ocho jobs independientes construyen y publican Traefik, MariaDB, las cinco APIs y Web en GitLab Container Registry con el tag del commit.
 3. **Security:** se valida Compose, se ejecutan Hadolint, Semgrep, Trivy, Yamllint y Gitleaks. Trivy analiza las imágenes del commit, pero es informativo: `allow_failure: true` permite que el pipeline avance aunque el escaneo falle. Los demás controles configurados como obligatorios sí pueden bloquear el avance.
-4. **Deploy:** `deploy_terraform` se ejecuta automáticamente, y solo en el pipeline de tipo `push` de `main`, cuando las etapas anteriores terminan correctamente. En particular, el merge de una rama `feat/*` a `main` produce el pipeline que despliega. Las imágenes se descargan en el runner y se transfieren porque `deploy.sh` usa `--pull never`.
+4. **Deploy:** `deploy_terraform` se ejecuta automáticamente, y solo en el pipeline de tipo `push` de `main`, cuando las etapas anteriores terminan correctamente. En particular, el merge de una rama `feature/*` a `main` produce el pipeline que despliega. Las imágenes se descargan en el runner y se transfieren porque `deploy.sh` usa `--pull never`.
 
 ### Política automática de despliegue
 
 Se retiró el job legacy `deploy_aws`. El único job de despliegue es `deploy_terraform`, que aprovisiona o actualiza la instancia Terraform y luego transfiere imágenes y configuración, ejecuta `deploy.sh` y espera sus verificaciones HTTPS.
 
-La regla CI se basa en el evento `push` a `main`, no en el nombre de la rama fuente: una vez integrado un cambio de `feat/*`, GitLab crea el pipeline de `main` y ese pipeline despliega automáticamente. GitLab no conserva la rama fuente como variable de un pipeline normal de push; por ello, la regla también desplegaría otros commits que lleguen a `main`. Para que la política operativa sea “solo cambios de `feat/*`”, proteger `main`, impedir pushes directos y aceptar cambios únicamente mediante merge requests desde ramas con ese prefijo.
+La regla CI se basa en el evento `push` a `main`, no en el nombre de la rama fuente: una vez integrado un cambio de `feature/*`, GitLab crea el pipeline de `main` y ese pipeline despliega automáticamente. GitLab no conserva la rama fuente como variable de un pipeline normal de push; por ello, la regla también desplegaría otros commits que lleguen a `main`. Para que la política operativa sea “solo cambios de `feature/*`”, proteger `main`, impedir pushes directos y aceptar cambios únicamente mediante merge requests desde ramas con ese prefijo.
 
 El AWS Academy Learner Lab debe estar activo y sus variables protegidas deben estar actualizadas antes del merge que dispare el deploy. Tras completar las verificaciones, el job imprime `https://<IP>/` y `https://<IP>/dashboard/`. El certificado es autofirmado.
 
@@ -496,4 +496,4 @@ Para ejecutarlas localmente: `cd aplicaciones-contenedores/api-clientes`, instal
 - Capturas de Parte 1: conservadas en `docs/evidencias/`, **no corresponden a la última sesión Terraform**.
 - **Pendiente antes de entregar:** agregar capturas reales de la misma sesión de AWS Academy para el pipeline completo, job `deploy_terraform` (incluyendo `terraform apply`), EC2 creada y aplicación abierta en HTTPS. Guardarlas en `docs/evidencias/` y enlazarlas aquí.
 
-El despliegue Terraform ahora es automático en los pipelines `push` de `main`, después de superar los controles previos. Mergear `feat/*` inicia el pipeline que despliega; para limitar el origen de cambios, `main` debe estar protegida y aceptar únicamente merge requests con ese prefijo.
+El despliegue Terraform ahora es automático en los pipelines `push` de `main`, después de superar los controles previos. Mergear `feature/*` inicia el pipeline que despliega; para limitar el origen de cambios, `main` debe estar protegida y aceptar únicamente merge requests con ese prefijo.

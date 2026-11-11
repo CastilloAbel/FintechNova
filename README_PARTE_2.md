@@ -138,9 +138,9 @@ La definición de infraestructura como código permite versionar los cambios, re
 
 El pipeline conserva únicamente **`deploy_terraform`** para el despliegue. El job legacy `deploy_aws`, que apuntaba a una instancia existente por SSH, fue retirado.
 
-El despliegue es automático cuando el pipeline de tipo `push` de `main` alcanza `deploy` después de que test, build y security finalizan correctamente. Por lo tanto, al mergear una rama `feat/*` a `main`, el nuevo pipeline de `main` ejecuta Terraform y despliega sin una acción manual. Las ramas feature no despliegan mientras permanecen sin merge.
+El despliegue es automático cuando el pipeline de tipo `push` de `main` alcanza `deploy` después de que test, build y security finalizan correctamente. Por lo tanto, al mergear una rama `feature/*` a `main`, el nuevo pipeline de `main` ejecuta Terraform y despliega sin una acción manual. Las ramas feature no despliegan mientras permanecen sin merge.
 
-La condición de CI detecta un push a `main`, no el nombre de la rama fuente. También se desplegaría otro tipo de cambio integrado a `main`; para limitar la política a features, se debe proteger `main`, prohibir pushes directos y aceptar únicamente merge requests desde ramas `feat/*`. La sesión del Learner Lab y las variables protegidas AWS/State deben estar vigentes antes de integrar el cambio.
+La condición de CI detecta un push a `main`, no el nombre de la rama fuente. También se desplegaría otro tipo de cambio integrado a `main`; para limitar la política a features, se debe proteger `main`, prohibir pushes directos y aceptar únicamente merge requests desde ramas `feature/*`. La sesión del Learner Lab y las variables protegidas AWS/State deben estar vigentes antes de integrar el cambio.
 
 Terraform conserva el state fijo `fintech-nova-sandbox`. El sufijo/key pair varía por pipeline, por lo que un apply sucesivo puede reemplazar la instancia y su volumen raíz EBS (`delete_on_termination`), perdiendo la base de datos local. Con el deploy automático esto puede ocurrir en cada merge a `main`; esta EC2 no debe usarse para datos persistentes.
 
