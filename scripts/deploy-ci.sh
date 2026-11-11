@@ -17,6 +17,10 @@ for name in "${required_vars[@]}"; do
 done
 [[ -s $DEPLOY_SSH_KEY ]] || fail 'La clave SSH no existe o está vacía.'
 
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+PROJECT_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
+cd "$PROJECT_ROOT"
+
 python3 - "$AWS_EC2_HOST" "$DASHBOARD_USER" <<'PY'
 import ipaddress
 import re
@@ -74,7 +78,7 @@ scp_deploy() {
 }
 
 echo "Preparando Docker y Docker Compose en EC2..."
-scp_deploy setup-ec2.sh fintech-nova:~/setup-ec2.sh
+scp_deploy scripts/setup-ec2.sh fintech-nova:~/setup-ec2.sh
 ssh_deploy "bash ~/setup-ec2.sh"
 
 printf '%s' "$CI_REGISTRY_PASSWORD" |
@@ -99,7 +103,7 @@ done
 
 ssh_deploy "sudo docker image ls"
 ssh_deploy "mkdir -p ~/fintech-nova/certs ~/fintech-nova/secrets"
-scp_deploy docker-compose.yml deploy.sh fintech-nova:~/fintech-nova/
+scp_deploy docker-compose.yml scripts/deploy.sh fintech-nova:~/fintech-nova/
 
 export DOCKER_USER="$CI_REGISTRY/$CI_PROJECT_PATH"
 export DOMAIN="$AWS_EC2_HOST"
