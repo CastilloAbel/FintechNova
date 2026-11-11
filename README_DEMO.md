@@ -7,7 +7,7 @@
 
 En la primera entrega, FinTech Nova ya podía ejecutarse con Docker Compose, pero su validación y despliegue dependían en gran medida de pasos manuales. En esta segunda etapa incorporamos un proceso centralizado en GitLab que **prueba los cinco servicios de negocio, construye ocho imágenes, ejecuta controles de seguridad y permite desplegar la solución en AWS con Terraform**.
 
-**Resultado verificado:** en la ejecución de referencia se iniciaron los ocho contenedores, MariaDB alcanzó estado `healthy` y la web y las cinco APIs respondieron HTTP `200`. El despliegue se inició mediante un job manual; una vez iniciado, la preparación y las verificaciones se ejecutaron desde el pipeline.
+**Resultado verificado:** en la ejecución de referencia se iniciaron los ocho contenedores, MariaDB alcanzó estado `healthy` y la web y las cinco APIs respondieron HTTP `200`. La política actual despliega automáticamente desde `main` después de que pasan las etapas previas; el job Terraform realiza el aprovisionamiento, la transferencia y las verificaciones dentro del pipeline.
 
 | Antes (Parte 1) | Ahora (Parte 2) | Valor para FinTech Nova |
 | --- | --- | --- |
@@ -288,7 +288,11 @@ Terraform define la infraestructura de AWS en [`infra/aws/`](infra/aws/). La eje
 
 ![Reglas de acceso de EC2](docs/evidencias/aws-ec2-seguridad.png)
 
-**Cómo funciona el despliegue:** se inicia el job `deploy_terraform` en GitLab; el job prepara o actualiza la infraestructura, transfiere las imágenes y configuración necesarias, inicia los contenedores con Docker Compose y verifica los endpoints. Existe también un job alternativo `deploy_aws`, que no se utilizó para la validación final. **El disparo del despliegue sigue siendo manual**; el procedimiento posterior está automatizado.
+**Cómo funciona el despliegue:** después de un merge a `main`, el pipeline de tipo `push` ejecuta `deploy_terraform` automáticamente si test, build y los controles bloqueantes de security finalizaron correctamente. El job aplica la infraestructura, transfiere las imágenes y configuración necesarias, inicia los contenedores con Docker Compose y verifica los endpoints. El job legacy `deploy_aws` fue retirado.
+
+**Política de controles:** las pruebas y los controles configurados como obligatorios bloquean el avance si fallan. Trivy analiza vulnerabilidades `HIGH` y `CRITICAL` corregibles y genera artifacts, pero mantiene `allow_failure: true`; por lo tanto, sus hallazgos son informativos y no bloquean por sí solos el despliegue. Los reportes se revisan por separado y no se considera un pipeline verde como prueba de ausencia de CVEs.
+
+**Política de ramas:** `validar_origen_mr` permite integrar a `main` únicamente MRs desde `feat/*`. El deploy se activa por `push` a `main`, no por el nombre de la rama fuente. La protección de `main` debe impedir pushes directos para que el flujo sea exclusivamente por MR.
 
 ![Despliegue y verificaciones en GitLab](docs/evidencias/deploy-terraform.png)
 
@@ -299,7 +303,7 @@ Terraform define la infraestructura de AWS en [`infra/aws/`](infra/aws/). La eje
 - Ocho contenedores iniciados; MariaDB `healthy`.
 - Web y cinco APIs: **HTTP 200** en las comprobaciones HTTPS.
 - Dashboard Traefik: **HTTP 401 esperado**, por requerir autenticación.
-- El pipeline puede verse como **Blocked** por el job manual alternativo `deploy_aws` pendiente. Esto no contradice el éxito del job `deploy_terraform`.
+- Este pipeline corresponde a una ejecución histórica, cuando el deploy todavía se iniciaba manualmente. En la política actual `deploy_terraform` es automático en los pipelines `push` de `main`.
 
 ![Interfaz web de FinTech Nova en AWS](docs/evidencias/aplicacion-aws.png)
 
@@ -307,7 +311,7 @@ Terraform define la infraestructura de AWS en [`infra/aws/`](infra/aws/). La eje
 
 **Riesgos mitigados:** los tests reducen la probabilidad de publicar cambios defectuosos; los escaneos permiten detectar vulnerabilidades antes; las verificaciones HTTPS permiten advertir fallas visibles inmediatamente después del despliegue; Terraform reduce el trabajo necesario para recrear la infraestructura.
 
-**Riesgos no resueltos:** la aplicación depende de una sola EC2; no se ha demostrado con estas evidencias recuperación automática, redundancia, respaldo restaurado, tolerancia a fallas ni un tiempo objetivo de recuperación. Una caída de esa instancia podría interrumpir el acceso a la web y las APIs.
+**Riesgos no resueltos:** la aplicación depende de una sola EC2; no se ha demostrado con estas evidencias recuperación automática, redundancia, respaldo restaurado, tolerancia a fallas ni un tiempo objetivo de recuperación. Una caída de esa instancia podría interrumpir el acceso a la web y las APIs. Además, cada `apply` automático puede reemplazar la instancia del state `fintech-nova-sandbox`; el disco raíz tiene `delete_on_termination`, por lo que la base local puede perderse en cada merge. La base de esa EC2 no debe considerarse almacenamiento persistente.
 
 **Impacto económico:** no contamos con cifras de operaciones, ingresos por transacción ni costos de indisponibilidad de FinTech Nova; por lo tanto, **no corresponde afirmar una pérdida monetaria real por hora**. Para estimarla usaríamos:
 
@@ -331,12 +335,12 @@ Guardar las capturas en [`docs/evidencias/`](docs/evidencias/) con los nombres s
 
 ## 7. Próximas mejoras priorizadas
 
-1. **Alta prioridad:** definir política de bloqueo de vulnerabilidades críticas en el pipeline y excepciones justificadas.
+1. **Alta prioridad:** decidir si Trivy debe pasar de informativo (`allow_failure: true`) a bloqueante para vulnerabilidades `CRITICAL` corregibles; definir excepciones justificadas, temporales y revisables. La política vigente permite que Trivy falle sin bloquear el deploy.
 2. **Alta prioridad:** monitoreo, alertas y pruebas de recuperación ante caída de EC2.
 3. **Alta prioridad:** respaldos con restauración comprobada y evaluación de redundancia.
 4. **Siguiente iteración:** pruebas de integración y carga, métricas de tiempos de despliegue y recuperación.
-5. **Siguiente iteración:** evaluar automatizar el disparo del despliegue con aprobaciones y controles adecuados.
+5. **Siguiente iteración:** reforzar el control de cambios en `main` (rama protegida, MRs obligatorios y pipeline exitoso requerido), ya que un push directo también satisface la regla de deploy basada en `push` a `main`.
 
 ## Documentación complementaria
 
-[README Parte 1](README.md) · [Seguridad](SEGURIDAD.md) · [Errores y soluciones](ERRORES.md) · [AWS EC2](AWS_EC2.md) · [Despliegue](DEPLOY.md) · [Análisis](ANALISIS.md)
+[README Parte 1](README.md) · [Seguridad](SEGURIDAD.md) · [Errores y soluciones](ERRORES.md) · [AWS EC2](AWS_EC2.md) · [Despliegue](DEPLOY.md) · [Análisis](ANALISIS.md) · [Runbooks](docs/runbooks/README.md) · [Postmortems](docs/postmortems/README.md) · [ADRs](docs/adr/README.md)

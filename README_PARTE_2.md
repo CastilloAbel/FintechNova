@@ -136,12 +136,13 @@ La definición de infraestructura como código permite versionar los cambios, re
 
 ### 5.1. Estrategias de despliegue
 
-El pipeline contempla dos trabajos manuales alternativos:
+El pipeline conserva únicamente **`deploy_terraform`** para el despliegue. El job legacy `deploy_aws`, que apuntaba a una instancia existente por SSH, fue retirado.
 
-- **`deploy_aws`:** despliegue sobre una instancia EC2 ya existente.
-- **`deploy_terraform`:** aprovisionamiento o actualización de infraestructura mediante Terraform y posterior despliegue de la aplicación.
+El despliegue es automático cuando el pipeline de tipo `push` de `main` alcanza `deploy` después de que test, build y security finalizan correctamente. Por lo tanto, al mergear una rama `feat/*` a `main`, el nuevo pipeline de `main` ejecuta Terraform y despliega sin una acción manual. Las ramas feature no despliegan mientras permanecen sin merge.
 
-Para la validación final se utilizó **`deploy_terraform`**.
+La condición de CI detecta un push a `main`, no el nombre de la rama fuente. También se desplegaría otro tipo de cambio integrado a `main`; para limitar la política a features, se debe proteger `main`, prohibir pushes directos y aceptar únicamente merge requests desde ramas `feat/*`. La sesión del Learner Lab y las variables protegidas AWS/State deben estar vigentes antes de integrar el cambio.
+
+Terraform conserva el state fijo `fintech-nova-sandbox`. El sufijo/key pair varía por pipeline, por lo que un apply sucesivo puede reemplazar la instancia y su volumen raíz EBS (`delete_on_termination`), perdiendo la base de datos local. Con el deploy automático esto puede ocurrir en cada merge a `main`; esta EC2 no debe usarse para datos persistentes.
 
 ## 6. Despliegue y verificación
 
@@ -170,7 +171,7 @@ Después del inicio, el job verifica el estado de los servicios y realiza solici
 | API Tarjetas (`/api/tarjetas`) | HTTP `200` |
 | Dashboard Traefik (`/dashboard/`) | HTTP `401` — autenticación requerida |
 
-El job `deploy_terraform` finalizó con el mensaje de despliegue verificado correctamente. El pipeline puede figurar como **Blocked** porque `deploy_aws`, que es una alternativa manual, permanece sin ejecutar; esto no afecta el resultado exitoso del job de Terraform.
+El job `deploy_terraform` finalizó con el mensaje de despliegue verificado correctamente. Esa ejecución constituye evidencia histórica; con la política actual, los nuevos pipelines `push` de `main` lanzan el job automáticamente y ya no quedan bloqueados por un job manual alternativo pendiente.
 
 La IP pública de la instancia depende de la sesión de AWS Academy y puede cambiar al reiniciar o recrear los recursos.
 
@@ -228,6 +229,10 @@ En un sistema financiero, una interrupción puede impedir consultas y operacione
 | [ERRORES.md](ERRORES.md) | Problemas encontrados y soluciones |
 | [AWS_EC2.md](AWS_EC2.md) | Configuración del entorno AWS |
 | [DEPLOY.md](DEPLOY.md) | Procedimientos de despliegue |
+| [scripts/README.md](scripts/README.md) | Inventario de scripts operativos |
+| [docs/adr/README.md](docs/adr/README.md) | Decisiones de arquitectura y operación (ADRs) |
+| [docs/runbooks/README.md](docs/runbooks/README.md) | Procedimientos operativos repetibles |
+| [docs/postmortems/README.md](docs/postmortems/README.md) | Análisis de incidentes y acciones preventivas |
 | [ANALISIS.md](ANALISIS.md) | Análisis técnico del proyecto |
 
 ---

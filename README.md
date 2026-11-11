@@ -4,7 +4,7 @@
 
 FinTech Nova reúne la gestión de clientes, pagos, facturas, transacciones y tarjetas mediante una interfaz web y cinco APIs independientes. El trabajo comprende la dockerización de los componentes, su integración con Docker Compose y el despliegue en Amazon EC2 con acceso HTTPS.
 
-La implementación incluye ocho imágenes publicadas en Docker Hub, una instancia compartida de MariaDB con almacenamiento persistente y tres scripts que separan la construcción, la preparación de archivos privados y el despliegue. Este documento presenta la arquitectura, las decisiones de implementación y las evidencias de las pruebas registradas.
+El flujo CI actual publica ocho imágenes en GitLab Container Registry y despliega mediante Terraform en AWS EC2. El repositorio también conserva el procedimiento histórico de Docker Hub, una instancia compartida de MariaDB con almacenamiento persistente y scripts para construcción, preparación de archivos privados y despliegue. Este documento presenta la arquitectura, las decisiones de implementación y las evidencias de las pruebas registradas.
 
 ## 1. Arquitectura e integración
 
@@ -75,7 +75,7 @@ En algunas aplicaciones se configura un usuario distinto de root para reducir lo
 
 La imagen de MariaDB incorpora `init-scripts/` en `/docker-entrypoint-initdb.d/`. Estos archivos preparan las bases, permisos y tablas durante la primera inicialización. La imagen de Traefik incorpora `traefik.yml` y `dynamic/`, asociando las reglas de enrutamiento a la versión publicada.
 
-Los contextos utilizados por `build.sh` coinciden con las rutas de copia de cada Dockerfile: Traefik utiliza su carpeta; MariaDB, Clientes y Pagos, sus respectivas carpetas; los otros componentes de aplicación utilizan `aplicaciones-contenedores`.
+Los contextos utilizados por `scripts/build.sh` coinciden con las rutas de copia de cada Dockerfile: Traefik utiliza su carpeta; MariaDB, Clientes y Pagos, sus respectivas carpetas; los otros componentes de aplicación utilizan `aplicaciones-contenedores`.
 
 El build genera imágenes para `linux/amd64`, en correspondencia con la instancia x86_64 documentada. La compilación Go también fija esa arquitectura e incorpora certificados CA en la imagen final para consultar servicios externos mediante HTTPS.
 
@@ -116,7 +116,7 @@ Las referencias utilizan `DOCKER_USER` e `IMAGE_TAG` para seleccionar el namespa
 image: ${DOCKER_USER}/tp1-api-clientes:${IMAGE_TAG}
 ```
 
-Esta estructura permite cambiar la publicación utilizada sin editar las ocho referencias individualmente. Los valores deben coincidir con los argumentos empleados al ejecutar `build.sh`.
+Esta estructura permite cambiar la publicación utilizada sin editar las ocho referencias individualmente. Los valores deben coincidir con los argumentos empleados al ejecutar `scripts/build.sh`.
 
 ### Red y variables de entorno
 
@@ -280,11 +280,11 @@ La autenticación protege el dashboard, que da acceso a la información y funcio
 
 ## 5. Automatización de construcción y publicación
 
-[build.sh](build.sh) conserva el flujo histórico de construcción y publicación de las ocho imágenes en Docker Hub. Se ejecuta en la PC con Docker iniciado y una sesión previa en el registro:
+[scripts/build.sh](scripts/build.sh) conserva el flujo histórico de construcción y publicación de las ocho imágenes en Docker Hub. Se ejecuta en la PC con Docker iniciado y una sesión previa en el registro:
 
 ```bash
 docker login
-bash build.sh camilagea prueba-2026-10-11
+bash scripts/build.sh camilagea prueba-2026-10-11
 ```
 
 La cuenta y el tag del ejemplo corresponden a la prueba documentada y se reemplazan para otra publicación. El script valida los argumentos, comprueba Docker y verifica la existencia de los Dockerfiles. Después construye todas las imágenes con `--pull` y `--platform linux/amd64`.
@@ -327,18 +327,18 @@ La IP registrada identifica la prueba documentada y no constituye una dirección
 El flujo separa las responsabilidades de los tres scripts:
 
 ```text
-PC: build.sh → ocho imágenes en Docker Hub
-PC: prepare-deploy.sh → certificado, clave TLS y usuario del dashboard
+PC: scripts/build.sh → ocho imágenes en Docker Hub
+PC: scripts/prepare-deploy.sh → certificado, clave TLS y usuario del dashboard
 PC: SCP → archivos de ejecución en EC2
 EC2: deploy.sh → instalación, descarga, inicio y verificaciones
 ```
 
 ### Preparación de archivos privados
 
-[prepare-deploy.sh](prepare-deploy.sh) se ejecuta en la PC con Docker iniciado y OpenSSL disponible:
+[scripts/prepare-deploy.sh](scripts/prepare-deploy.sh) se ejecuta en la PC con Docker iniciado y OpenSSL disponible:
 
 ```bash
-bash prepare-deploy.sh camila
+bash scripts/prepare-deploy.sh camila
 ```
 
 Solicita dos veces la contraseña sin mostrarla y utiliza `htpasswd` en un contenedor temporal para generar el hash. Agrega el usuario a `secrets/dashboard_users` y rechaza nombres duplicados.
@@ -347,16 +347,16 @@ También genera el certificado y la clave TLS. Cada ejecución reemplaza ese par
 
 ### Transferencia y ejecución remota
 
-Se copian Compose, `.env`, certificados, usuarios y `deploy.sh`. El código fuente no necesita transferirse porque ya está en las imágenes; la PEM se utiliza desde la PC y no se copia a EC2.
+Se copian Compose, `.env`, certificados, usuarios y `scripts/deploy.sh`. El código fuente no necesita transferirse porque ya está en las imágenes; la PEM se utiliza desde la PC y no se copia a EC2. Al copiar el archivo desde `scripts/`, SCP lo deja con el nombre `deploy.sh` en el destino.
 
 ```bash
-scp -i "RUTA_CLAVE.pem" -r certs/ secrets/ .env docker-compose.yml deploy.sh ec2-user@IP_EC2:/home/ec2-user/tp-1/
+scp -i "RUTA_CLAVE.pem" -r certs/ secrets/ .env docker-compose.yml scripts/deploy.sh ec2-user@IP_EC2:/home/ec2-user/tp-1/
 ssh -i "RUTA_CLAVE.pem" ec2-user@IP_EC2 'bash ~/tp-1/deploy.sh'
 ```
 
 `IP_EC2` y la ruta de la clave deben ajustarse al entorno. Los scripts se ejecutan con Bash; en Windows se utiliza un entorno que lo proporcione, como WSL o Git Bash.
 
-Dentro de EC2, [deploy.sh](deploy.sh):
+Dentro de EC2, el archivo [scripts/deploy.sh](scripts/deploy.sh) se copia como `deploy.sh` y:
 
 1. Comprueba los archivos requeridos y restringe permisos de los privados.
 2. Instala Docker, habilita su servicio y comprueba curl.
@@ -434,7 +434,7 @@ La instalación del paquete completo `curl` entraba en conflicto con `curl-minim
 
 ## 10. Pipeline actual de GitLab CI/CD
 
-Además del procedimiento histórico ejecutado desde una PC que se describe en las secciones anteriores, el repositorio cuenta con un pipeline GitLab que construye las imágenes para GitLab Container Registry, ejecuta controles y ofrece dos despliegues manuales. El bloque de Docker Hub de la sección 5 corresponde a la publicación histórica mediante `build.sh`; no describe el registry utilizado por los jobs actuales.
+Además del procedimiento histórico ejecutado desde una PC que se describe en las secciones anteriores, el repositorio cuenta con un pipeline GitLab que construye las imágenes para GitLab Container Registry, ejecuta controles y despliega automáticamente mediante Terraform tras un pipeline exitoso de `main`. El bloque de Docker Hub de la sección 5 corresponde a la publicación histórica mediante `build.sh`; no describe el registry utilizado por los jobs actuales.
 
 ### Flujo del pipeline
 
@@ -443,26 +443,25 @@ Las etapas se ejecutan en este orden:
 1. **Test:** `prueba_pipeline` y `validar_terraform`. Este último ejecuta fmt/validate para `infra/aws`; no aprovisiona recursos ni valida el backend remoto.
 2. **Build:** ocho jobs independientes construyen y publican Traefik, MariaDB, las cinco APIs y Web en GitLab Container Registry con el tag del commit.
 3. **Security:** se valida Compose, se ejecutan Hadolint, Semgrep, Trivy, Yamllint y Gitleaks. Trivy analiza las imágenes del commit, pero es informativo: `allow_failure: true` permite que el pipeline avance aunque el escaneo falle. Los demás controles configurados como obligatorios sí pueden bloquear el avance.
-4. **Deploy:** aparecen los jobs manuales según la rama. Ambos esperan a que finalicen las etapas anteriores y transfieren las imágenes descargadas por el runner, porque `deploy.sh` usa `--pull never`.
+4. **Deploy:** `deploy_terraform` se ejecuta automáticamente, y solo en el pipeline de tipo `push` de `main`, cuando las etapas anteriores terminan correctamente. En particular, el merge de una rama `feat/*` a `main` produce el pipeline que despliega. Las imágenes se descargan en el runner y se transfieren porque `deploy.sh` usa `--pull never`.
 
-### Dos modos de despliegue
+### Política automática de despliegue
 
-| Job manual | Qué hace | Ramas habilitadas | Destino y credenciales |
-|---|---|---|---|
-| `deploy_aws` | Actualiza una instancia ya creada: prepara Docker/Compose, carga ocho imágenes por SSH, genera configuración runtime y ejecuta `deploy.sh`. No crea ni termina EC2. | `main`, `feature/deploy-aws`, `feature/test-deploy-ec2` | Host IPv4 existente mediante `AWS_EC2_HOST`, `AWS_EC2_USER` y `AWS_SSH_PRIVATE_KEY` (variable de archivo). |
-| `deploy_terraform` | Aprovisiona/actualiza una instancia distinta con Terraform y luego ejecuta el mismo flujo de preparación, transferencia y verificación. | `main`, `deploy/terraform` | Credenciales temporales de AWS Academy, `RUNNER_EGRESS_CIDR` y autenticación del state HTTP de GitLab. Genera una clave SSH efímera; no usa la clave del modo legacy. |
+Se retiró el job legacy `deploy_aws`. El único job de despliegue es `deploy_terraform`, que aprovisiona o actualiza la instancia Terraform y luego transfiere imágenes y configuración, ejecuta `deploy.sh` y espera sus verificaciones HTTPS.
 
-Los dos jobs deben apuntar a instancias separadas. No se deben ejecutar en paralelo contra un mismo host; sus claves y credenciales tampoco son intercambiables. Al completar `deploy.sh` y las verificaciones HTTPS, cada job imprime `https://<IP>/` y la URL `https://<IP>/dashboard/`. El certificado es autofirmado.
+La regla CI se basa en el evento `push` a `main`, no en el nombre de la rama fuente: una vez integrado un cambio de `feat/*`, GitLab crea el pipeline de `main` y ese pipeline despliega automáticamente. GitLab no conserva la rama fuente como variable de un pipeline normal de push; por ello, la regla también desplegaría otros commits que lleguen a `main`. Para que la política operativa sea “solo cambios de `feat/*`”, proteger `main`, impedir pushes directos y aceptar cambios únicamente mediante merge requests desde ramas con ese prefijo.
+
+El AWS Academy Learner Lab debe estar activo y sus variables protegidas deben estar actualizadas antes del merge que dispare el deploy. Tras completar las verificaciones, el job imprime `https://<IP>/` y `https://<IP>/dashboard/`. El certificado es autofirmado.
 
 ### State y ciclo de vida Terraform
 
-`deploy_terraform` conserva un state remoto fijo llamado `fintech-nova-sandbox`; no se crea un state por pipeline. El sufijo y el key pair cambian por ejecución, así que un apply sucesivo puede reemplazar la instancia registrada en ese state, en vez de acumular instancias independientes. La instancia tiene un volumen root EBS con `delete_on_termination`; el reemplazo elimina ese disco y se pierden la base local y los demás datos no respaldados. Respaldar lo que se necesite antes de aplicar de nuevo.
+`deploy_terraform` conserva un state remoto fijo llamado `fintech-nova-sandbox`; no se crea un state por pipeline. El sufijo y el key pair cambian por ejecución, así que cada deploy automático puede reemplazar la instancia registrada en ese state. La instancia tiene un volumen root EBS con `delete_on_termination`; el reemplazo elimina ese disco y se pierden la base local y los demás datos no respaldados. **Con la política automática, esto puede suceder en cada merge a `main`; no usar la base de esa EC2 para datos que deban persistir.**
 
 No hay un job `destroy_ec2` ni una etapa de cleanup: el pipeline no ofrece una acción para terminar la instancia. AWS Academy puede expirar o resetear recursos al vencer la sesión. El `terraform init` de `deploy_terraform` valida el backend al iniciar el flujo. Si todavía existe el state desechable antiguo `fintech-state-probe`, eliminarlo manualmente desde GitLab solo después de comprobar que es el state de prueba.
 
 El job Terraform aplica limpieza local con `umask 077` y un `trap` para borrar la clave privada efímera, el plan, las credenciales temporales de Docker y otros archivos del runner, también si falla. No elimina desde EC2 el `.env`, el certificado ni las credenciales del dashboard que la aplicación necesita en runtime.
 
-Los scripts existentes —`build.sh`, `build-ci.sh`, `prepare-deploy.sh`, `setup-ec2.sh` y `deploy.sh`— se preservan. El pipeline construye las imágenes mediante sus jobs declarados. Para evitar duplicar la transferencia de imágenes y la preparación runtime, ambos jobs llaman al nuevo [deploy-ci.sh](deploy-ci.sh); Terraform conserva por separado su inicialización, plan y apply, mientras que el modo legacy aporta la clave y el host existentes.
+Los scripts operativos se agrupan en `scripts/`: [build.sh](scripts/build.sh), [build-ci.sh](scripts/build-ci.sh), [prepare-deploy.sh](scripts/prepare-deploy.sh), [setup-ec2.sh](scripts/setup-ec2.sh), [deploy.sh](scripts/deploy.sh), [deploy-ci.sh](scripts/deploy-ci.sh) y [find-vulnerabilities.ps1](scripts/find-vulnerabilities.ps1). Se preserva su función; el pipeline construye las imágenes mediante sus jobs declarados y `deploy_terraform` llama al helper después de terminar `init`, `plan` y `apply`. Los scripts de inicialización DB y pruebas de cada API permanecen junto al componente que los consume.
 
 Para el detalle de variables, operación por sesión del Sandbox y pasos de cada ruta, consultar [DEPLOY.md](DEPLOY.md). La política de seguridad y el estado de Trivy se describen en [SEGURIDAD.md](SEGURIDAD.md) y [ANALISIS.md](ANALISIS.md).
 
@@ -475,9 +474,13 @@ Los scripts separan construcción, preparación y despliegue. La configuración 
 Los siguientes documentos amplían los procedimientos. La arquitectura, el flujo de despliegue, las evidencias y los problemas principales quedan desarrollados en este README:
 
 - [DEPLOY.md](DEPLOY.md): procedimiento de construcción, preparación y despliegue.
+- [scripts/README.md](scripts/README.md): inventario y uso de los scripts operativos.
+- [docs/adr/README.md](docs/adr/README.md): decisiones de arquitectura (ADRs), alternativas y consecuencias.
 - [SEGURIDAD.md](SEGURIDAD.md): medidas de acceso y tratamiento de archivos privados.
 - [AWS_EC2.md](AWS_EC2.md): configuración y registro de la prueba en AWS.
 - [ERRORES.md](ERRORES.md): detalle de incidencias documentadas.
+- [docs/runbooks/README.md](docs/runbooks/README.md): procedimientos de despliegue y respuesta operativa.
+- [docs/postmortems/README.md](docs/postmortems/README.md): análisis de incidentes, impacto y acciones preventivas.
 - [Enunciado del TP](Enunciado-TP-Parte-1.md): requisitos y alcance de la entrega.
 
 
@@ -493,4 +496,4 @@ Para ejecutarlas localmente: `cd aplicaciones-contenedores/api-clientes`, instal
 - Capturas de Parte 1: conservadas en `docs/evidencias/`, **no corresponden a la última sesión Terraform**.
 - **Pendiente antes de entregar:** agregar capturas reales de la misma sesión de AWS Academy para el pipeline completo, job `deploy_terraform` (incluyendo `terraform apply`), EC2 creada y aplicación abierta en HTTPS. Guardarlas en `docs/evidencias/` y enlazarlas aquí.
 
-Nota: Terraform está integrado como ruta alternativa de aprovisionamiento. El job `deploy_terraform` se inicia manualmente; luego aprovisiona y ejecuta el despliegue automáticamente.
+El despliegue Terraform ahora es automático en los pipelines `push` de `main`, después de superar los controles previos. Mergear `feat/*` inicia el pipeline que despliega; para limitar el origen de cambios, `main` debe estar protegida y aceptar únicamente merge requests con ese prefijo.

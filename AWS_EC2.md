@@ -2,9 +2,9 @@
 
 Este documento describe los modos de despliegue y conserva los datos de una prueba histórica de FinTech Nova en Amazon EC2.
 
-> **Rutas CI actuales:** `deploy_aws` conecta por SSH a una EC2 preexistente con `AWS_EC2_HOST`, `AWS_EC2_USER` y `AWS_SSH_PRIVATE_KEY`; `deploy_terraform` aprovisiona y despliega en otra EC2 con Terraform. Ambos son manuales y no deben apuntar al mismo host ni ejecutarse en paralelo contra una misma instancia. Los dos transfieren las imágenes del commit desde el runner y ejecutan las verificaciones HTTPS antes de imprimir la URL. Consultar variables e instrucciones en [DEPLOY.md](DEPLOY.md).
+> **Política CI actual:** el job `deploy_terraform` es el único despliegue CI. Se ejecuta automáticamente, después de los controles, en pipelines `push` de `main`. El merge de ramas `feat/*` inicia ese pipeline; la regla también cubre cualquier otro push a `main`, por lo que se recomienda proteger la rama y requerir merge requests desde `feat/*`. `deploy_aws` ya no existe en CI; el modo SSH a EC2 preexistente queda únicamente como antecedente. El runner transfiere las imágenes del commit y el job ejecuta verificaciones HTTPS antes de imprimir la URL. Consultar variables e instrucciones en [DEPLOY.md](DEPLOY.md).
 >
-> La tabla y las evidencias siguientes son históricas; no reutilizar los IDs efímeros de AMI, VPC, subnet, SG o IP en sesiones nuevas. AWS Academy requiere iniciar el Lab y renovar credenciales temporalmente. Terraform mantiene el state `fintech-nova-sandbox`; un apply posterior puede reemplazar su instancia y borrar el disco raíz (incluida la DB local). El pipeline ya no incluye jobs de probe ni de destroy; los recursos pueden expirar/resetearse por ciclo de vida del Lab.
+> La tabla y las evidencias siguientes son históricas; no reutilizar los IDs efímeros de AMI, VPC, subnet, SG o IP en sesiones nuevas. AWS Academy requiere iniciar el Lab y renovar credenciales temporalmente antes de mergear a `main`. Terraform mantiene el state `fintech-nova-sandbox`; cada apply automático puede reemplazar su instancia y borrar el disco raíz (incluida la DB local). El pipeline ya no incluye jobs de probe ni de destroy; los recursos pueden expirar/resetearse por ciclo de vida del Lab.
 
 ## 1. Instancia utilizada
 
@@ -101,7 +101,7 @@ chmod 600 ~/FinTech-Nova.pem
 
 ## 4. Preparación de la instancia
 
-La instancia de este procedimiento utiliza Amazon Linux 2023. Una vez copiado a EC2, `deploy.sh` instala Docker, utiliza el `curl-minimal` que normalmente ya viene instalado, habilita Docker y descarga e instala el plugin oficial de Docker Compose. Admite las arquitecturas `x86_64` y `aarch64` y verifica el checksum SHA-256 del plugin descargado. No se debe pedir a DNF instalar `curl` completo, ya que entra en conflicto con `curl-minimal`.
+La instancia de este procedimiento utiliza Amazon Linux 2023. El script local [scripts/deploy.sh](scripts/deploy.sh) se copia a EC2 como `deploy.sh`; allí instala Docker, utiliza el `curl-minimal` que normalmente ya viene instalado, habilita Docker y descarga e instala el plugin oficial de Docker Compose. Admite las arquitecturas `x86_64` y `aarch64` y verifica el checksum SHA-256 del plugin descargado. No se debe pedir a DNF instalar `curl` completo, ya que entra en conflicto con `curl-minimal`.
 
 ---
 
@@ -110,13 +110,13 @@ La instancia de este procedimiento utiliza Amazon Linux 2023. Una vez copiado a 
 Las imágenes utilizadas por EC2 se publican previamente en Docker Hub mediante:
 
 ```sh
-bash build.sh <DOCKER_USER> <IMAGE_TAG>
+bash scripts/build.sh <DOCKER_USER> <IMAGE_TAG>
 ```
 
 Durante la prueba final se utilizó:
 
 ```sh
-bash build.sh camilagea 1.0.0
+bash scripts/build.sh camilagea 1.0.0
 ```
 
 Se publicaron las siguientes 8 imágenes:
@@ -138,16 +138,16 @@ Este es el registro del procedimiento manual histórico. Los jobs actuales de CI
 
 ## 6. Configuración del despliegue
 
-En el flujo manual histórico, antes de transferir se genera el certificado y agrega el usuario de Traefik ejecutando localmente `bash prepare-deploy.sh <usuario-dashboard>`; el script solicita la contraseña de forma oculta. Los jobs CI generan estos archivos temporalmente y transfieren los archivos runtime a EC2. Para más detalles, consulta [DEPLOY.md](./DEPLOY.md).
+En el flujo manual histórico, antes de transferir se genera el certificado y agrega el usuario de Traefik ejecutando localmente `bash scripts/prepare-deploy.sh <usuario-dashboard>`; el script solicita la contraseña de forma oculta. El job CI genera estos archivos temporalmente y transfiere los archivos runtime a EC2. Para más detalles, consulta [DEPLOY.md](./DEPLOY.md).
 
-El archivo `.env` incluye `DOCKER_USER` e `IMAGE_TAG`, que deben coincidir con el namespace y el tag usados al ejecutar `build.sh`, además de las credenciales de la aplicación. Desde la raíz del proyecto en la PC, se copian los archivos necesarios y se inicia el despliegue remoto:
+El archivo `.env` incluye `DOCKER_USER` e `IMAGE_TAG`, que deben coincidir con el namespace y el tag usados al ejecutar `scripts/build.sh`, además de las credenciales de la aplicación. Desde la raíz del proyecto en la PC, se copian los archivos necesarios y se inicia el despliegue remoto:
 
 ```sh
-scp -i FinTech-Nova.pem -r certs/ secrets/ .env docker-compose.yml deploy.sh ec2-user@<IP_O_DNS_EC2>:/home/ec2-user/tp-1/
+scp -i FinTech-Nova.pem -r certs/ secrets/ .env docker-compose.yml scripts/deploy.sh ec2-user@<IP_O_DNS_EC2>:/home/ec2-user/tp-1/
 ssh -i FinTech-Nova.pem ec2-user@<IP_O_DNS_EC2> "bash ~/tp-1/deploy.sh"
 ```
 
-La PEM permanece en la PC: se usa para SSH/SCP y no se copia a EC2. `deploy.sh` se ejecuta en EC2 sin parámetros; el usuario y el tag de las imágenes se leen desde `.env`. Se conserva la carpeta `tp-1` porque Compose infiere de ella el nombre del proyecto; no se especifica `--project-name` en el script.
+La PEM permanece en la PC: se usa para SSH/SCP y no se copia a EC2. El archivo local `scripts/deploy.sh`, transferido con el nombre remoto `deploy.sh`, se ejecuta en EC2 sin parámetros; el usuario y el tag de las imágenes se leen desde `.env`. Se conserva la carpeta `tp-1` porque Compose infiere de ella el nombre del proyecto; no se especifica `--project-name` en el script.
 
 ---
 
@@ -171,7 +171,7 @@ Los archivos sensibles no se almacenan en Git. Al ejecutarse, `deploy.sh` restri
 
 ## 8. Inicio de los contenedores
 
-El procedimiento manual documentado originalmente describía `docker compose pull`. Sin embargo, el `deploy.sh` vigente no hace pull: requiere que las imágenes ya existan localmente y ejecuta `docker compose up -d --no-build --pull never`. Por eso ambos jobs de CI hacen pull desde el runner y transfieren las imágenes con `docker save`/`docker load` antes de invocar el script.
+El procedimiento manual documentado originalmente describía `docker compose pull`. Sin embargo, el `deploy.sh` vigente no hace pull: requiere que las imágenes ya existan localmente y ejecuta `docker compose up -d --no-build --pull never`. Por eso el job CI `deploy_terraform` hace pull desde el runner y transfiere las imágenes con `docker save`/`docker load` antes de invocar el script.
 
 Una vez preparada la instancia, el chequeo de estado equivale a:
 

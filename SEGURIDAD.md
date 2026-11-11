@@ -74,7 +74,7 @@ La opción `-k` permite realizar la prueba HTTPS sin exigir que el certificado h
 
 En un entorno productivo se debería utilizar un certificado emitido por una autoridad certificadora confiable.
 
-El certificado y su clave se generan localmente antes de transferir los archivos a EC2 mediante `prepare-deploy.sh`. El certificado usa el CN fijo `*.19.grupo.devops.frc.utn.edu.ar`; la clave privada se guarda con permisos restrictivos y no se versiona. Cada ejecución reemplaza el par anterior.
+El certificado y su clave se generan localmente antes de transferir los archivos a EC2 mediante `scripts/prepare-deploy.sh`. El certificado usa el CN fijo `*.19.grupo.devops.frc.utn.edu.ar`; la clave privada se guarda con permisos restrictivos y no se versiona. Cada ejecución reemplaza el par anterior.
 
 ---
 
@@ -192,7 +192,7 @@ secrets/dashboard_users
 
 y no debe almacenarse públicamente en el repositorio.
 
-El usuario se agrega con `prepare-deploy.sh`; la contraseña se solicita sin mostrarla y se envía por entrada estándar a `htpasswd` dentro de un contenedor `httpd:2.4`. El archivo guarda el hash, no la contraseña en texto claro. Cada usuario distinto se agrega en una nueva línea; los nombres repetidos se rechazan.
+El usuario se agrega con `scripts/prepare-deploy.sh`; la contraseña se solicita sin mostrarla y se envía por entrada estándar a `htpasswd` dentro de un contenedor `httpd:2.4`. El archivo guarda el hash, no la contraseña en texto claro. Cada usuario distinto se agrega en una nueva línea; los nombres repetidos se rechazan.
 
 Por lo tanto, una solicitud al dashboard sin credenciales debe recibir una respuesta de autenticación requerida.
 
@@ -232,7 +232,7 @@ Por lo tanto, la base de datos y las APIs no pueden accederse directamente desde
 
 ## 10. Acceso SSH
 
-El acceso administrativo se realiza mediante claves SSH que permanecen en el runner/PC y nunca se copian a EC2. El pipeline separa dos destinos y credenciales: `deploy_aws` usa la clave de archivo `AWS_SSH_PRIVATE_KEY` para una instancia existente; `deploy_terraform` genera una clave Ed25519 efímera para otra instancia y elimina su copia privada al finalizar.
+El acceso administrativo del pipeline usa una clave Ed25519 efímera generada por `deploy_terraform`; la clave privada permanece en el runner y se elimina al finalizar. El antiguo job `deploy_aws`, que utilizaba `AWS_SSH_PRIVATE_KEY` para una EC2 preexistente, fue retirado del CI.
 
 La clave privada:
 
@@ -247,7 +247,7 @@ Durante las pruebas desde WSL fue necesario almacenar una copia de la clave en e
 chmod 600 ~/FinTech-Nova.pem
 ```
 
-La clave se utiliza únicamente para establecer conexiones `ssh` y copiar archivos con `scp`. No se transfiere a EC2 ni se necesita para ejecutar `deploy.sh` dentro de la instancia. Las variables SSH deben mantenerse protegidas/enmascaradas en GitLab según corresponda. No ejecutar ambos modos contra el mismo host ni en paralelo si comparten destino.
+La clave se utiliza únicamente para establecer conexiones `ssh` y copiar archivos con `scp`. No se transfiere a EC2 ni se necesita para ejecutar `deploy.sh` dentro de la instancia. El deploy automático depende de las variables protegidas AWS/State y de las credenciales de aplicación configuradas en GitLab.
 
 ---
 
@@ -294,9 +294,9 @@ para evitar publicar accidentalmente información sensible.
 
 ## 13. Automatización del despliegue
 
-GitLab ofrece dos jobs manuales con funciones distintas. `deploy_aws` conecta por SSH a una EC2 ya existente usando `AWS_EC2_HOST`, `AWS_EC2_USER` y `AWS_SSH_PRIVATE_KEY`; `deploy_terraform` aprovisiona/despliega en una EC2 separada con credenciales AWS temporales y una clave efímera. Ambos transfieren las ocho imágenes desde el runner —la instancia no recibe credenciales del Registry—, generan `.env`, certificado y hash de dashboard en el runner, y los copian a EC2 como archivos runtime necesarios. Los temporales del runner se eliminan mediante trap; los secretos runtime de EC2 no se borran porque los necesita el servicio.
+GitLab ofrece un único job CI de despliegue: `deploy_terraform`. Se ejecuta automáticamente después de las etapas previas en cada pipeline `push` de `main`; por tanto, un merge desde `feat/*` a `main` inicia el despliegue. El job genera una clave efímera, provisiona EC2, transfiere las ocho imágenes desde el runner —la instancia no recibe credenciales del Registry—, genera `.env`, certificado y hash de dashboard en el runner y copia esos archivos a EC2 como runtime requirements. Los temporales del runner se eliminan mediante trap; los secretos runtime de EC2 no se borran porque los necesita el servicio. La regla de CI no puede distinguir la rama fuente después del merge, por lo que también desplegaría otros pushes a `main`; proteger `main` y exigir merge requests de ramas `feat/*` para hacer cumplir esa política.
 
-Terraform utiliza el state remoto fijo `fintech-nova-sandbox`. Un apply posterior puede reemplazar la instancia debido al cambio de sufijo/key pair. Como el root EBS tiene `delete_on_termination`, se pierde el disco y la base de datos local; se deben respaldar los datos antes de aplicar de nuevo. El pipeline no tiene `destroy_ec2`; el Sandbox de AWS Academy puede expirar o resetear los recursos. `terraform init` dentro del job valida el backend, sin un job state-probe separado.
+Terraform utiliza el state remoto fijo `fintech-nova-sandbox`. Un apply posterior puede reemplazar la instancia debido al cambio de sufijo/key pair. Como el root EBS tiene `delete_on_termination`, se pierde el disco y la base de datos local. Al ser automático, este reemplazo puede ocurrir en cada merge a `main`; no almacenar allí datos que deban persistir. El pipeline no tiene `destroy_ec2`; el Sandbox de AWS Academy puede expirar o resetear los recursos. `terraform init` dentro del job valida el backend, sin un job state-probe separado.
 
 ---
 
@@ -316,11 +316,11 @@ Los reportes de Semgrep, Trivy, Hadolint, Yamllint y Gitleaks se conservan como 
 
 Se retiraron `probar_docker` y `probar_descarga_imagen` porque eran pruebas auxiliares del runner y del registry, no controles de seguridad del producto. La descarga de imágenes ocurre en los jobs de build/deploy; el escaneo Trivy de imágenes no constituye una validación de autorización SSH ni de acceso al Registry desde EC2.
 
-El análisis detallado de los hallazgos está en [ANALISIS.md](ANALISIS.md). Los reportes JSON y de texto no se versionan: se conservan como artifacts descargables de los jobs correspondientes.
+El análisis detallado de los hallazgos está en [ANALISIS.md](ANALISIS.md). Los reportes JSON y de texto no se versionan: se conservan como artifacts descargables de los jobs correspondientes. Para investigar findings, seguir el [runbook de Trivy](docs/runbooks/runbook-trivy-vulnerabilities.md); el incidente de CVEs APT está documentado en el [postmortem](docs/postmortems/PM-2026-11-trivy-cve-discovery.md).
 
 ### Política ante vulnerabilidades
 
-Los hallazgos `ERROR` de Semgrep y los errores bloqueantes de los demás controles detienen el pipeline. Trivy analiza vulnerabilidades `HIGH` y `CRITICAL` (ignorando las que no tienen corrección), pero al tener `allow_failure: true` es informativo y su fallo no impide continuar hacia el deploy manual. Sus reportes deben revisarse y los riesgos aceptados documentarse con impacto, justificación, medida compensatoria y responsable. No se afirma que Trivy sea actualmente un gate.
+Los hallazgos `ERROR` de Semgrep y los errores bloqueantes de los demás controles detienen el pipeline. Trivy analiza vulnerabilidades `HIGH` y `CRITICAL` (ignorando las que no tienen corrección), pero al tener `allow_failure: true` es informativo y su fallo no impide continuar hacia el deploy automático de `main`. Sus reportes deben revisarse y los riesgos aceptados documentarse con impacto, justificación, medida compensatoria y responsable. No se afirma que Trivy sea actualmente un gate.
 
 Los secretos se gestionan mediante variables protegidas y enmascaradas de GitLab o mediante archivos privados suministrados durante el despliegue. Nunca se agregan tokens, contraseñas, claves PEM, claves TLS ni archivos `.env` al repositorio.
 

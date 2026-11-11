@@ -1,25 +1,16 @@
 # Build y despliegue en EC2
 
-## Despliegues manuales desde GitLab CI
+## Despliegue automático al integrar cambios
 
-El pipeline ofrece dos jobs manuales, con destinos y credenciales separados. Ambos esperan a que terminen correctamente las etapas anteriores de test, build y security. No se deben ejecutar contra el mismo host ni en paralelo si se configura accidentalmente el mismo destino.
+El pipeline conserva un único job de despliegue: `deploy_terraform`. `deploy_aws`, que desplegaba por SSH en una EC2 preexistente, fue retirado del CI. Los scripts históricos siguen en el repositorio para referencia y uso fuera de este job.
 
-| Job | Destino y función | Ramas |
-|---|---|---|
-| `deploy_aws` | Despliega en una EC2 ya existente usando `AWS_EC2_HOST`, `AWS_EC2_USER` y `AWS_SSH_PRIVATE_KEY`. Descarga las ocho imágenes del Container Registry en el runner y las transfiere por SSH. | `main`, `feature/deploy-aws`, `feature/test-deploy-ec2` |
-| `deploy_terraform` | Usa Terraform para aprovisionar/actualizar otra EC2 y después instala Docker, transfiere imágenes y despliega. No utiliza las credenciales SSH de `deploy_aws`. | `main`, `deploy/terraform` |
+`deploy_terraform` se ejecuta automáticamente, sin botón manual, únicamente en pipelines de tipo `push` de la rama `main` y después de que test, build y security finalicen correctamente. Al integrar a `main` una rama con prefijo `feat/` (por ejemplo, `feat/nueva-api`), el push resultante inicia el pipeline de `main` y, si pasa los controles, aprovisiona/actualiza EC2 y despliega. En ramas `feat/*` el pipeline valida, construye y analiza, pero no despliega.
 
-Tras ejecutar `deploy.sh` y sus verificaciones HTTPS, cada job imprime `https://<IP>/` y la URL del dashboard. El certificado es autofirmado.
+La regla CI ve que el pipeline corresponde a un push de `main`; GitLab no expone en ese pipeline normal el nombre de la rama fuente que se mergeó. Por tanto, cualquier otro cambio que llegue a `main` también desplegaría. Para que la política del repositorio sea exclusivamente “merge desde `feat/*`”, proteger `main`, deshabilitar pushes directos y aceptar cambios únicamente mediante merge requests desde ramas con ese prefijo.
 
-### Ruta legacy: `deploy_aws`
+Antes de mergear, iniciar AWS Academy Learner Lab y actualizar las variables temporales protegidas. Si las credenciales no están disponibles en `main`, el deploy fallará y el pipeline quedará fallido; el job Terraform no permite el fallo. Cuando `deploy.sh` y sus verificaciones HTTPS concluyen correctamente, el log imprime `https://<IP>/` y la URL del dashboard. El certificado es autofirmado.
 
-Configura en GitLab las variables `AWS_EC2_HOST` (IPv4 pública), `AWS_EC2_USER` y `AWS_SSH_PRIVATE_KEY` (variable de tipo archivo), además de `DB_USER`, `DB_PASSWORD`, `MYSQL_ROOT_PASSWORD`, `DASHBOARD_USER`, `DASHBOARD_PASSWORD` y, si aplica, `IPAPI_TOKEN`. Protege y enmascara los valores sensibles. La EC2 debe estar activa, aceptar SSH desde el runner y ser Amazon Linux compatible con `setup-ec2.sh`.
-
-El job delega la preparación de EC2, descarga y transferencia de imágenes, generación de archivos runtime y ejecución de health checks a `deploy-ci.sh`, compartido con Terraform. El runner inicia sesión en el Container Registry y carga las imágenes etiquetadas con el commit en la instancia: es necesario porque `deploy.sh` usa `--pull never`. Este job no aprovisiona ni destruye EC2.
-
-### Ruta Terraform: `deploy_terraform`
-
-En `main` o `deploy/terraform`, ejecutar manualmente `deploy_terraform`. Antes hay que iniciar AWS Academy Learner Lab y actualizar sus credenciales. El job conserva únicamente el provisionamiento y luego invoca `deploy-ci.sh` con la clave y la instancia que generó. `terraform init` valida el backend HTTP durante el propio deploy; ya no hay un job `terraform_state_probe` en el flujo.
+El job invoca `scripts/deploy-ci.sh` para preparar EC2, transferir las imágenes y archivos runtime y ejecutar las verificaciones. Las imágenes del commit se descargan en el runner y se cargan en EC2 porque `deploy.sh` usa `--pull never`. El `terraform init` del job valida el backend HTTP; no se ejecuta un `terraform_state_probe` separado.
 
 ### Variables requeridas por sesión
 
@@ -40,13 +31,13 @@ Después de iniciar el Sandbox, actualizar en **Settings → CI/CD → Variables
 
 La AMI predeterminada `ami-0c230065b91270bc6` es un identificador regional. Confirmar que corresponde a Amazon Linux 2023 x86_64 en `AWS_DEFAULT_REGION`; si no, sobrescribir el valor no secreto `AWS_EC2_AMI_ID` en variables CI/CD. La instancia se configura como `t3.small` con root volume gp3 de 20 GiB.
 
-Las variables Protected solo están disponibles en ramas protegidas. Proteger `deploy/terraform` mientras se valida esta implementación o ejecutar desde `main` después de integrar el cambio. Nunca pegar credenciales AWS o claves privadas en el YAML, el state o artifacts.
+Las variables Protected solo están disponibles en ramas protegidas. Proteger `main` y confirmar que las variables necesarias tengan alcance para esta rama. Nunca pegar credenciales AWS o claves privadas en el YAML, el state o artifacts.
 
 ### Ejecutar y persistencia del state
 
-1. Iniciar el Learner Lab y refrescar las credenciales/variables de esa sesión.
-2. Lanzar manualmente `deploy_terraform`. Terraform genera una clave Ed25519 efímera, envía solo la pública a AWS, aprovisiona/actualiza la instancia y ejecuta el despliegue. La clave privada, el plan, la configuración Docker y otros archivos temporales se eliminan del runner incluso ante fallo.
-3. El state HTTP permanece fijo en `fintech-nova-sandbox`; no se crea un state por pipeline y no se acumulan instancias independientes administradas por el mismo flujo. Como el sufijo/key pair cambia por pipeline, un apply sucesivo puede reemplazar la instancia del state. El root EBS tiene `delete_on_termination`; al reemplazarla se pierde el disco y la base de datos local. Respaldar cualquier dato necesario antes de otro apply.
+1. Iniciar el Learner Lab y refrescar las credenciales/variables protegidas antes de integrar cambios a `main`.
+2. Abrir un merge request desde `feat/*` y, una vez aprobado, mergearlo a `main`. El pipeline de `main` lanzará automáticamente `deploy_terraform` tras los controles previos. Terraform genera una clave Ed25519 efímera, envía solo la pública a AWS y aprovisiona/actualiza la instancia. La clave privada, el plan, la configuración Docker y otros archivos temporales se eliminan del runner incluso ante fallo.
+3. El state HTTP permanece fijo en `fintech-nova-sandbox`; no se crea un state por pipeline ni se acumulan instancias independientes administradas por el mismo flujo. Como el sufijo/key pair cambia por pipeline, un apply sucesivo puede reemplazar la instancia del state. El root EBS tiene `delete_on_termination`; al reemplazarla se pierde el disco y la base de datos local. Con el deploy automático, este reemplazo puede ocurrir en cada merge a `main`: no conservar allí datos que deban persistir. Respaldar cualquier dato necesario antes de integrar cambios que vuelvan a aplicar Terraform.
 4. No existe un job CI `destroy_ec2`: el pipeline no ofrece una acción para terminar la instancia. AWS Academy puede expirar o resetear los recursos al finalizar la sesión; revisar el estado y las reglas del Sandbox.
 
 Si aún existe en GitLab el state de prueba antiguo `fintech-state-probe`, eliminarlo manualmente desde la interfaz de Terraform States solo después de confirmar que es el state desechable del probe. No se usa ni se modifica desde el pipeline.
@@ -55,9 +46,9 @@ El job recorta espacios y normaliza una IP IPv4 simple como `/32`; también acep
 
 ## Procedimiento manual histórico (referencia)
 
-La sección siguiente describe el procedimiento histórico ejecutado desde una PC, que usaba Docker Hub y una PEM local. Se conserva como referencia junto con `build.sh`, `prepare-deploy.sh`, `setup-ec2.sh` y `deploy.sh`; no es el job CI `deploy_aws` restaurado, que usa Container Registry y una EC2 existente. La clave privada efímera de Terraform nunca se copia a EC2.
+La sección siguiente describe el procedimiento histórico ejecutado desde una PC, que usaba Docker Hub y una PEM local. Se conserva como referencia junto con los scripts operativos ubicados en `scripts/`; no es el flujo CI actual, que usa Terraform y GitLab Container Registry. La clave privada efímera de Terraform nunca se copia a EC2.
 
-El flujo manual usa tres scripts: `build.sh` construye y publica las imágenes desde la PC; `prepare-deploy.sh` crea localmente el certificado y el usuario del dashboard; `deploy.sh` se copia a EC2 y se ejecuta allí.
+El flujo manual usa tres scripts ubicados en `scripts/`: `build.sh` construye y publica las imágenes desde la PC; `prepare-deploy.sh` crea localmente el certificado y el usuario del dashboard; `deploy.sh` se copia a EC2 con su nombre original y se ejecuta allí.
 
 ## 1. Publicar las imágenes desde la PC
 
@@ -65,10 +56,10 @@ Inicia sesión en Docker Hub y publica las ocho imágenes:
 
 ```sh
 docker login
-./build.sh <DOCKER_USER> <IMAGE_TAG>
+bash scripts/build.sh <DOCKER_USER> <IMAGE_TAG>
 ```
 
-Por ejemplo, usa el mismo namespace y tag que después quedarán en el archivo `.env`. `build.sh` no se modifica y no realiza despliegues.
+Por ejemplo, usa el mismo namespace y tag que después quedarán en el archivo `.env`. `scripts/build.sh` no realiza despliegues.
 
 ## 2. Preparar `.env`
 
@@ -79,14 +70,14 @@ DOCKER_USER=tu_usuario_de_dockerhub
 IMAGE_TAG=1.0.0
 ```
 
-Deben coincidir con los argumentos usados en `build.sh`. El archivo `.env` contiene credenciales; no lo subas a Git. El archivo `env.example` sirve de plantilla.
+Deben coincidir con los argumentos usados en `scripts/build.sh`. El archivo `.env` contiene credenciales; no lo subas a Git. El archivo `env.example` sirve de plantilla.
 
 ## 3. Generar certificado y usuario del dashboard
 
-Antes de copiar archivos a EC2, desde la raíz del repositorio ejecuta el script local `prepare-deploy.sh` indicando el nombre de usuario que quieras crear:
+Antes de copiar archivos a EC2, desde la raíz del repositorio ejecuta `scripts/prepare-deploy.sh` indicando el nombre de usuario que quieras crear:
 
 ```sh
-bash prepare-deploy.sh abel
+bash scripts/prepare-deploy.sh abel
 ```
 
 El script solicita la contraseña dos veces sin mostrarla ni recibirla como argumento. La envía por entrada estándar al contenedor `httpd:2.4` para generar el hash compatible con Traefik y agrega `usuario:hash` al final de `secrets/dashboard_users`. Docker descargará esa imagen si no está localmente.
@@ -118,7 +109,7 @@ ssh -i "FinTech-Nova.pem" ec2-user@<DNS_O_IP_PUBLICA> \
 
 
 ```sh
-scp -i "FinTech-Nova.pem" -r certs/ secrets/ .env docker-compose.yml deploy.sh ec2-user@<DNS_O_IP_PUBLICA>:/home/ec2-user/tp-1/
+scp -i "FinTech-Nova.pem" -r certs/ secrets/ .env docker-compose.yml scripts/deploy.sh ec2-user@<DNS_O_IP_PUBLICA>:/home/ec2-user/tp-1/
 ```
 
 Sustituye `<DNS_O_IP_PUBLICA>` por la dirección actual de la instancia. No agregues la clave PEM a la lista de archivos.
@@ -131,7 +122,7 @@ ssh -i "FinTech-Nova.pem" ec2-user@<DNS_O_IP_PUBLICA> "bash ~/tp-1/deploy.sh"
 
 La carpeta remota debe llamarse `tp-1`: Compose la usa para deducir el nombre del proyecto. El script no pasa `--project-name`. Así, Compose utiliza el mismo proyecto y volumen cuando se ejecuta manualmente desde `~/tp-1`.
 
-El script, ya dentro de EC2:
+El script remoto `deploy.sh`, ya dentro de EC2:
 
 1. comprueba los archivos requeridos y restringe permisos de `.env`, la clave TLS y el secreto del dashboard;
 2. instala Docker, comprueba que esté disponible `curl` (normalmente `curl-minimal` en Amazon Linux 2023), habilita Docker al inicio y prepara el plugin oficial de Docker Compose;
