@@ -4,7 +4,7 @@
 
 set -Eeuo pipefail
 
-ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 
 fail() {
@@ -12,8 +12,8 @@ fail() {
   exit 1
 }
 
-# Uso: ./build.sh registry tag image_ref
-[[ $# == 3 ]] || fail 'Uso: ./build.sh registry tag image_ref'
+# Uso: ./scripts/build-ci.sh registry tag image_ref
+[[ $# == 3 ]] || fail 'Uso: ./scripts/build-ci.sh registry tag image_ref'
 
 REGISTRY=$1
 IMAGE_TAG=$2

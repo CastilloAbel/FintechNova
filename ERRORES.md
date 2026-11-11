@@ -351,6 +351,6 @@ En el último despliegue compartido, el job finalizó con `Job succeeded`; no se
 
 **Causa:** paquetes `apt` y bibliotecas relacionadas en las imágenes base requerían actualizaciones de seguridad. El job tiene `allow_failure: true`, por eso podía mostrar advertencia sin bloquear el pipeline.
 
-**Solución:** agregar actualización de los paquetes afectados en ambos Dockerfiles, reconstruir las imágenes y volver a ejecutar Trivy. **Resultado:** los jobs de build y Trivy quedaron en verde en el pipeline #16409 (commit `19b4346`).
+**Solución:** agregar actualización selectiva de `apt` y las bibliotecas APT correspondientes en los Dockerfiles de DB, Facturas y Tarjetas; reconstruir las imágenes y volver a ejecutar Trivy. El equipo reporta una ejecución posterior exitosa. Sin embargo, los artifacts locales actuales corresponden al tag `349306ed` y todavía contienen el CVE en las imágenes de DB y Facturas, por lo que no se deben presentar como el resultado post-fix. Como Trivy tiene `allow_failure: true`, un pipeline global verde tampoco basta para demostrar la remediación. Verificar los JSON del pipeline/tag reconstruido. El contexto, la línea de tiempo y las acciones preventivas están en [el postmortem](docs/postmortems/PM-2026-11-trivy-cve-discovery.md) y el procedimiento está en [el runbook](docs/runbooks/runbook-trivy-vulnerabilities.md).
 
 **Pendiente separado:** revisar el aviso moderado `NU1902` de `MySqlConnector 2.3.7` en API Tarjetas.
