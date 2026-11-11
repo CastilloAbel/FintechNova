@@ -4,7 +4,7 @@
 
 set -Eeuo pipefail
 
-ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 
 fail() {
@@ -12,8 +12,8 @@ fail() {
   exit 1
 }
 
-# Uso: ./build.sh camilagea 1.0.0
-[[ $# == 2 ]] || fail 'Uso: ./build.sh namespace tag (ejemplo: ./build.sh camilagea 1.0.0)'
+# Uso: ./scripts/build.sh camilagea 1.0.0
+[[ $# == 2 ]] || fail 'Uso: ./scripts/build.sh namespace tag (ejemplo: ./scripts/build.sh camilagea 1.0.0)'
 
 NAMESPACE=$1
 IMAGE_TAG=$2

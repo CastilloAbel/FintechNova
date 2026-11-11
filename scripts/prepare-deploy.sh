@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 
-ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 
 fail() {
@@ -10,7 +10,7 @@ fail() {
   exit 1
 }
 
-[[ $# -eq 1 ]] || fail 'Uso: bash prepare-deploy.sh <usuario-dashboard>'
+[[ $# -eq 1 ]] || fail 'Uso: bash scripts/prepare-deploy.sh <usuario-dashboard>'
 username=$1
 [[ $username =~ ^[A-Za-z0-9_.-]+$ ]] || \
   fail 'El usuario solo puede contener letras, números, punto, guion y guion bajo.'

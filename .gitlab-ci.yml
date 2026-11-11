@@ -20,6 +20,18 @@ prueba_pipeline:
     - echo "Iniciando pipeline de FinTech Nova"
     - echo "GitLab CI/CD funciona correctamente"
 
+validar_origen_mr:
+  stage: test
+  image: alpine:3.22
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+  script:
+    - |
+      case "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" in
+        feature/*) echo "Origen permitido: $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" ;;
+        *) echo "Solo se permiten ramas feature/* hacia main"; exit 1 ;;
+      esac
+
 test_api_clientes:
   stage: test
   image: python:3.11-slim
@@ -71,8 +83,6 @@ validar_terraform:
     name: hashicorp/terraform:1.17.1
     entrypoint: [""]
   tags: [$RUNNER_TAG]
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "deploy/terraform"'
   before_script:
     - apk add --no-cache ca-certificates
   script:
@@ -272,39 +282,6 @@ detectar_secretos:
       - gitleaks-report.json
     expire_in: 1 week
 
-deploy_aws:
-  stage: deploy
-  image: docker:29.8.1-cli
-  tags:
-    - runner-without-dind
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-      when: manual
-    - if: '$CI_COMMIT_BRANCH == "feature/deploy-aws"'
-      when: manual
-    - if: '$CI_COMMIT_BRANCH == "feature/test-deploy-ec2"'
-      when: manual
-    - if: '$CI_COMMIT_BRANCH == "deploy/terraform"'
-      when: manual
-  # allow_failure: true
-  before_script:
-    - apk add --no-cache bash openssh-client openssl apache2-utils python3
-    - test -n "$DB_USER"
-    - test -n "$DB_PASSWORD"
-    - test -n "$MYSQL_ROOT_PASSWORD"
-    - test -n "$DASHBOARD_USER"
-    - test -n "$DASHBOARD_PASSWORD"
-    - test -n "$AWS_EC2_HOST"
-    - test -n "$AWS_EC2_USER"
-    - test -s "$AWS_SSH_PRIVATE_KEY"
-    - test -n "$CI_REGISTRY"
-    - test -n "$CI_REGISTRY_USER"
-    - test -n "$CI_REGISTRY_PASSWORD"
-    - chmod 600 "$AWS_SSH_PRIVATE_KEY"
-  script:
-    - export DEPLOY_SSH_KEY="$AWS_SSH_PRIVATE_KEY"
-    - bash deploy-ci.sh
-
 deploy_terraform:
   stage: deploy
   image:
@@ -313,11 +290,8 @@ deploy_terraform:
   tags:
     - runner-without-dind
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-      when: manual
-    - if: '$CI_COMMIT_BRANCH == "deploy/terraform"'
-      when: manual
-  # allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+      when: on_success
   resource_group: aws-sandbox
   environment:
     name: aws-sandbox
@@ -403,4 +377,4 @@ deploy_terraform:
       export AWS_EC2_HOST="$(terraform -chdir=infra/aws output -raw public_ip)"
       export AWS_EC2_USER="$(terraform -chdir=infra/aws output -raw ssh_user)"
       export DEPLOY_SSH_KEY="$TF_SSH_KEY"
-      bash deploy-ci.sh
+      bash scripts/deploy-ci.sh
