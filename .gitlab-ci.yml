@@ -222,7 +222,7 @@ analizar_codigo_semgrep:
 
 analizar_imagenes_trivy:
   stage: security
-  allow_failure: true
+  allow_failure: False
   image:
     name: aquasec/trivy:latest
     entrypoint: [""]
