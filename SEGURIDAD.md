@@ -307,7 +307,7 @@ El pipeline ejecuta los controles en el stage `security`, después de construir 
 | Control | Herramienta | Alcance | Resultado |
 |---|---|---|---|
 | `analizar_codigo_semgrep` | Semgrep | Código fuente, Dockerfiles, YAML y lenguajes de las APIs | Bloquea hallazgos `ERROR` y genera `semgrep-report.json`. |
-| `analizar_imagenes_trivy` | Trivy | Las ocho imágenes del commit | Analiza vulnerabilidades corregibles `HIGH` y `CRITICAL` y genera un JSON por imagen; con `allow_failure: true`, un hallazgo no bloquea el pipeline. |
+| `analizar_imagenes_trivy` | Trivy | Las ocho imágenes del commit | Analiza vulnerabilidades `HIGH` y `CRITICAL`, corregibles o no, y genera un JSON por imagen; cualquier hallazgo hace fallar el job y bloquea el avance al deploy. |
 | `analizar_dockerfiles` | Hadolint | Los ocho Dockerfiles declarados explícitamente | Bloquea errores de buenas prácticas Docker. |
 | `analizar_archivos_yaml` | Yamllint | CI, Compose y configuración de Traefik | Bloquea errores de sintaxis y formato YAML. |
 | `detectar_secretos` | Gitleaks | Árbol del repositorio | Bloquea secretos detectados y genera un reporte. |
@@ -320,7 +320,7 @@ El análisis detallado de los hallazgos está en [ANALISIS.md](ANALISIS.md). Los
 
 ### Política ante vulnerabilidades
 
-Los hallazgos `ERROR` de Semgrep y los errores bloqueantes de los demás controles detienen el pipeline. Trivy analiza vulnerabilidades `HIGH` y `CRITICAL` (ignorando las que no tienen corrección), pero al tener `allow_failure: true` es informativo y su fallo no impide continuar hacia el deploy automático de `main`. Sus reportes deben revisarse y los riesgos aceptados documentarse con impacto, justificación, medida compensatoria y responsable. No se afirma que Trivy sea actualmente un gate.
+Los hallazgos `ERROR` de Semgrep y los errores bloqueantes de los demás controles detienen el pipeline. Trivy analiza las ocho imágenes con `--severity HIGH,CRITICAL` y `--exit-code 1`, sin `--ignore-unfixed`; por tanto, cualquier hallazgo `HIGH` o `CRITICAL`, tenga o no parche disponible, falla el job y bloquea el deploy automático de `main`. `allow_failure: false` explicita que el fallo no es tolerable (también es el comportamiento predeterminado de GitLab). Los artifacts deben revisarse para diagnosticar y remediar los hallazgos; un riesgo no se acepta implícitamente por marcar el job como permitido.
 
 Los secretos se gestionan mediante variables protegidas y enmascaradas de GitLab o mediante archivos privados suministrados durante el despliegue. Nunca se agregan tokens, contraseñas, claves PEM, claves TLS ni archivos `.env` al repositorio.
 
@@ -346,7 +346,7 @@ La arquitectura aplica las siguientes medidas:
 
 ## Actualización CI/CD y Terraform (noviembre 2026)
 
-El nuevo `test_api_clientes` usa una base de datos simulada y no necesita secretos. `validar_terraform` verifica formato y configuración, pero no reemplaza una revisión de permisos IAM, Security Groups ni el análisis de riesgos. Trivy continúa con `allow_failure: true`: las vulnerabilidades HIGH/CRITICAL pueden producir advertencias sin bloquear el despliegue. Las credenciales temporales de AWS y del backend HTTP de Terraform se suministran mediante variables de GitLab, nunca deben subirse al repositorio. El runner transfiere las imágenes a EC2 mediante SSH y `docker load`; la EC2 no hace login directo al registry. Revisar el informe de Trivy antes de aceptar riesgos.
+El nuevo `test_api_clientes` usa una base de datos simulada y no necesita secretos. `validar_terraform` verifica formato y configuración, pero no reemplaza una revisión de permisos IAM, Security Groups ni el análisis de riesgos. Trivy bloquea el avance ante vulnerabilidades HIGH/CRITICAL, incluso sin parche disponible; revisar sus artifacts para diagnosticar y remediar el job fallido. Las credenciales temporales de AWS y del backend HTTP de Terraform se suministran mediante variables de GitLab, nunca deben subirse al repositorio. El runner transfiere las imágenes a EC2 mediante SSH y `docker load`; la EC2 no hace login directo al registry.
 
 
 ## Corrección de vulnerabilidades detectadas en el TP — noviembre 2026
@@ -355,8 +355,8 @@ En los análisis previos de Trivy se identificaron **cuatro hallazgos HIGH** aso
 
 Se actualizaron los Dockerfiles para ejecutar `apt-get update` y `apt-get install --only-upgrade` de los paquetes afectados durante la construcción de las imágenes, sin cambiar las versiones principales de MariaDB y Java. Los cambios se subieron en el commit `19b4346`.
 
-En el pipeline **#16409**, los jobs `build_db`, `build_facturas` y `analizar_imagenes_trivy` aparecieron en verde y el pipeline finalizó aprobado. Esto demuestra que el análisis configurado no detectó un hallazgo que hiciera fallar ese job en esa ejecución; **no equivale a una garantía de ausencia de todas las vulnerabilidades**. Para auditar los paquetes y CVE exactos, consultar los artifacts JSON de Trivy de ese pipeline.
+En el pipeline histórico **#16409**, los jobs `build_db`, `build_facturas` y `analizar_imagenes_trivy` aparecieron en verde y el pipeline finalizó aprobado. Ese resultado corresponde a la configuración y las imágenes analizadas en esa ejecución; no demuestra la política bloqueante actual ni garantiza ausencia permanente de vulnerabilidades. Para auditar los paquetes y CVE exactos, consultar los artifacts JSON de ese pipeline.
 
-En el log de pruebas de Tarjetas también se observó una advertencia `NU1902` sobre `MySqlConnector 2.3.7` (severidad moderada). No fue la causa del fallo del smoke test; queda como **mejora pendiente de evaluación**, revisando una versión corregida compatible y volviendo a ejecutar las pruebas. La configuración actual de Trivy se centra en `HIGH` y `CRITICAL`, por lo que no se debe afirmar que cubre todos los avisos moderados.
+En el log de pruebas de Tarjetas también se observó una advertencia `NU1902` sobre `MySqlConnector 2.3.7` (severidad moderada). No fue la causa del fallo del smoke test; queda como **mejora pendiente de evaluación**, revisando una versión corregida compatible y volviendo a ejecutar las pruebas. La configuración actual de Trivy bloquea severidades `HIGH` y `CRITICAL`; no se debe afirmar que cubre todos los avisos moderados.
 
 Para el alcance de las pruebas automatizadas y la explicación del pipeline, consultar [README_PARTE_2.md](README_PARTE_2.md).

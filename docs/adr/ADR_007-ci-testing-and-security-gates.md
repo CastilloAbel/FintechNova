@@ -1,6 +1,8 @@
 # ADR_007: Validación y política de controles en CI
 
-- **Estado:** Aceptada
+> Esta decisión describe la política histórica aceptada el 2026-11-11. Fue reemplazada por ADR_008; no describe la configuración vigente.
+
+- **Estado:** Reemplazada por [ADR_008](ADR_008-trivy-blocking-security-gate.md)
 - **Fecha:** 2026-11-11
 - **Decisores:** Grupo 19
 

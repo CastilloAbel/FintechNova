@@ -442,7 +442,7 @@ Las etapas se ejecutan en este orden:
 
 1. **Test:** `prueba_pipeline` y `validar_terraform`. Este último ejecuta fmt/validate para `infra/aws`; no aprovisiona recursos ni valida el backend remoto.
 2. **Build:** ocho jobs independientes construyen y publican Traefik, MariaDB, las cinco APIs y Web en GitLab Container Registry con el tag del commit.
-3. **Security:** se valida Compose, se ejecutan Hadolint, Semgrep, Trivy, Yamllint y Gitleaks. Trivy analiza las imágenes del commit, pero es informativo: `allow_failure: true` permite que el pipeline avance aunque el escaneo falle. Los demás controles configurados como obligatorios sí pueden bloquear el avance.
+3. **Security:** se valida Compose, se ejecutan Hadolint, Semgrep, Trivy, Yamllint y Gitleaks. Trivy analiza las ocho imágenes y bloquea el pipeline ante cualquier hallazgo `HIGH` o `CRITICAL`, incluso si todavía no hay una corrección disponible.
 4. **Deploy:** `deploy_terraform` se ejecuta automáticamente, y solo en el pipeline de tipo `push` de `main`, cuando las etapas anteriores terminan correctamente. En particular, el merge de una rama `feature/*` a `main` produce el pipeline que despliega. Las imágenes se descargan en el runner y se transfieren porque `deploy.sh` usa `--pull never`.
 
 ### Política automática de despliegue

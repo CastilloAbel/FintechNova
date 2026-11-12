@@ -9,7 +9,7 @@ El pipeline analiza el código fuente, los ocho Dockerfiles, los archivos YAML y
 La política adoptada es la siguiente:
 
 - Semgrep bloquea hallazgos de severidad `ERROR`.
-- Trivy reporta vulnerabilidades `HIGH` y `CRITICAL` que tengan una corrección disponible, pero el job está configurado con `allow_failure: true` y no bloquea el pipeline.
+- Trivy bloquea el pipeline cuando detecta cualquier vulnerabilidad `HIGH` o `CRITICAL` en las ocho imágenes, tenga o no una corrección disponible. El job usa `--exit-code 1` y `allow_failure: false`.
 - Hadolint bloquea errores de Dockerfile; las sugerencias informativas quedan reportadas.
 - Yamllint bloquea errores de formato o sintaxis YAML.
 - Gitleaks bloquea secretos detectados en el repositorio.
@@ -47,13 +47,13 @@ Los JSON que quedaron descargados localmente corresponden a una ejecución anter
 | `tp1-api-transacciones` | 0 | 0 | 0 |
 | `tp1-web` | 4 | 0 | 4 |
 
-La tabla es histórica, no el resultado final. En una ejecución posterior el pipeline terminó correctamente, pero Trivy tiene `allow_failure: true`: un estado verde no demuestra por sí solo que las imágenes estén libres de vulnerabilidades corregibles. Los artifacts locales actualmente disponibles se generaron el 7 de noviembre y analizan el tag `349306ed`, con metadata de imágenes construidas entre el 3 y el 6 de noviembre. En ese snapshot, Trivy reporta `CVE-2026-109518` en Facturas (`apt`, `libapt-pkg6.0` 2.4.14) y DB (`apt`, `libapt-pkg6.0t64` 2.8.3). Los JSON son evidencia de ese tag y no representan ni validan una reconstrucción posterior; ver el [postmortem del incidente](docs/postmortems/PM-2026-11-trivy-cve-discovery.md).
+La tabla es histórica, no el resultado final. En ejecuciones anteriores Trivy llegó a estar configurado con `allow_failure: true`; por ello, un pipeline verde de ese período no demuestra por sí solo que las imágenes estuvieran libres de vulnerabilidades. La política vigente es bloqueante. Los artifacts locales actualmente disponibles se generaron el 7 de noviembre y analizan el tag `349306ed`, con metadata de imágenes construidas entre el 3 y el 6 de noviembre. En ese snapshot, Trivy reporta `CVE-2026-109518` en Facturas (`apt`, `libapt-pkg6.0` 2.4.14) y DB (`apt`, `libapt-pkg6.0t64` 2.8.3). Los JSON son evidencia de ese tag y no representan ni validan una reconstrucción posterior; ver el [postmortem del incidente](docs/postmortems/PM-2026-11-trivy-cve-discovery.md).
 
 Los hallazgos provienen principalmente de paquetes de las imágenes base y de dependencias de aplicación: Alpine, Red Hat, Ubuntu, Debian, OpenSSL, Go `stdlib`, paquetes Python y Node.js, dependencias Java de Jackson y componentes del runtime .NET.
 
-El job descarga la base de vulnerabilidades de Trivy y, cuando corresponde, la base de Java. Estas bases se utilizan para identificar vulnerabilidades de sistema y de dependencias. El escaneo ignora vulnerabilidades sin versión corregida. Los hallazgos `HIGH` y `CRITICAL` corregibles se informan en los artifacts, pero actualmente no bloquean el pipeline.
+El job descarga la base de vulnerabilidades de Trivy y, cuando corresponde, la base de Java. Estas bases se utilizan para identificar vulnerabilidades de sistema y de dependencias. No se usa `--ignore-unfixed`: los hallazgos `HIGH` y `CRITICAL`, incluso si todavía no tienen versión corregida, se incluyen en el análisis y hacen fallar el job. Los ocho reportes JSON se conservan como artifacts incluso si el job falla.
 
-La configuración actual es deliberadamente informativa durante esta etapa: el job puede fallar por vulnerabilidades corregibles y aun así permitir que continúe el pipeline. Los casos sin parche disponible se omiten del umbral de fallo de Trivy y los reportes disponibles deben revisarse antes de aceptar el riesgo.
+La configuración actual es un gate obligatorio: cualquier hallazgo `HIGH` o `CRITICAL` detiene el pipeline y, por depender el deploy de la etapa `security`, impide el despliegue. Los hallazgos sin parche disponible también bloquean; deben investigarse y corregirse o escalarse antes de reintentar, sin convertir el job en tolerable al fallo.
 
 Para revisar localmente artifacts descargados, ejecutar `scripts/find-vulnerabilities.ps1` desde la raíz. Lee los JSON `security/trivy/trivy-report-*.json` y muestra severidad, CVE, paquete, versión instalada y versión corregida. Es una ayuda de lectura: no cambia los reportes ni reemplaza el escaneo automático del pipeline; requiere `jq.exe` en `PATH`.
 
@@ -107,8 +107,8 @@ La gestión de credenciales se realiza mediante variables protegidas y enmascara
 
 ## Resultado y decisión
 
-Los controles de Semgrep, Hadolint, Yamllint y Gitleaks integran validaciones automáticas de código, contenedores, configuración y secretos. Trivy analiza las ocho imágenes del commit y publica sus reportes, pero `allow_failure: true` hace que sea informativo: un pipeline exitoso no implica que Trivy no haya encontrado vulnerabilidades. Los hallazgos de la tabla anterior son una línea base histórica, no el estado actual.
+Los controles de Semgrep, Hadolint, Yamllint, Gitleaks y Trivy integran validaciones automáticas de código, contenedores, configuración y secretos. Trivy analiza las ocho imágenes del commit, publica sus reportes y bloquea ante cualquier hallazgo `HIGH` o `CRITICAL`. La línea base y los artifacts históricos descritos arriba no representan el estado de imágenes posteriores.
 
-La política efectiva bloquea el flujo ante hallazgos SAST `ERROR` y errores de los controles configurados como obligatorios. Trivy no es un gate en la configuración actual: sus hallazgos deben revisarse y no impiden el despliegue automático de `main`.
+La política vigente bloquea el flujo ante hallazgos SAST `ERROR`, errores de los controles obligatorios y hallazgos Trivy `HIGH`/`CRITICAL`; el deploy de `main` solo puede avanzar si la etapa de seguridad finaliza correctamente. Un pipeline verde acredita únicamente el análisis de las imágenes/tag/digest y la base de vulnerabilidades de esa ejecución, no una ausencia permanente de CVEs.
 
 Los detalles técnicos de cada ejecución se conservan en los artifacts de GitLab de los jobs `analizar_codigo_semgrep`, `analizar_imagenes_trivy`, `analizar_dockerfiles`, `analizar_archivos_yaml` y `detectar_secretos`. No se suben al repositorio los JSON ni los logs generados por esas ejecuciones.

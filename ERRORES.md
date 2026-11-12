@@ -334,7 +334,7 @@ Los ocho contenedores quedaron en ejecución y la aplicación pudo utilizarse co
 
 ## Estado de las pruebas de noviembre 2026
 
-En el último despliegue compartido, el job finalizó con `Job succeeded`; no se observa un error de ejecución del deploy. El log muestra advertencias de OpenSSH por intercambio de claves no poscuántico: no bloquearon la transferencia ni el despliegue. Trivy aparece con advertencia en el pipeline y tiene `allow_failure: true`; revisar su reporte antes de clasificar los hallazgos. Se incorporaron pruebas de API Clientes con mocks para validar rutas antes del Build sin depender de MariaDB.
+En el despliegue histórico compartido, el job finalizó con `Job succeeded`; no se observa un error de ejecución del deploy. El log muestra advertencias de OpenSSH por intercambio de claves no poscuántico: no bloquearon la transferencia ni el despliegue. En esa configuración histórica, Trivy aparecía con advertencia y `allow_failure: true`; esa política fue reemplazada. La configuración vigente bloquea el pipeline ante hallazgos HIGH/CRITICAL. Se incorporaron pruebas de API Clientes con mocks para validar rutas antes del Build sin depender de MariaDB.
 
 
 ## 16. CI/CD — fallo inicial del smoke test de API Tarjetas
@@ -349,8 +349,8 @@ En el último despliegue compartido, el job finalizó con `Job succeeded`; no se
 
 **Problema:** `analizar_imagenes_trivy` quedaba en naranja por cuatro detecciones HIGH (`CVE-2026-109518`) en MariaDB y API Facturas.
 
-**Causa:** paquetes `apt` y bibliotecas relacionadas en las imágenes base requerían actualizaciones de seguridad. El job tiene `allow_failure: true`, por eso podía mostrar advertencia sin bloquear el pipeline.
+**Causa:** paquetes `apt` y bibliotecas relacionadas en las imágenes base requerían actualizaciones de seguridad. Durante el incidente se habilitó temporalmente `allow_failure: true`, por lo que el job podía mostrar advertencia sin bloquear el pipeline. Esa excepción temporal ya no representa la política vigente.
 
-**Solución:** agregar actualización selectiva de `apt` y las bibliotecas APT correspondientes en los Dockerfiles de DB, Facturas y Tarjetas; reconstruir las imágenes y volver a ejecutar Trivy. El equipo reporta una ejecución posterior exitosa. Sin embargo, los artifacts locales actuales corresponden al tag `349306ed` y todavía contienen el CVE en las imágenes de DB y Facturas, por lo que no se deben presentar como el resultado post-fix. Como Trivy tiene `allow_failure: true`, un pipeline global verde tampoco basta para demostrar la remediación. Verificar los JSON del pipeline/tag reconstruido. El contexto, la línea de tiempo y las acciones preventivas están en [el postmortem](docs/postmortems/PM-2026-11-trivy-cve-discovery.md) y el procedimiento está en [el runbook](docs/runbooks/runbook-trivy-vulnerabilities.md).
+**Solución:** agregar actualización selectiva de `apt` y las bibliotecas APT correspondientes en los Dockerfiles de DB, Facturas y Tarjetas; reconstruir las imágenes y volver a ejecutar Trivy. El equipo reporta una ejecución posterior exitosa. Sin embargo, los artifacts locales actuales corresponden al tag `349306ed` y todavía contienen el CVE en las imágenes de DB y Facturas, por lo que no se deben presentar como el resultado post-fix. La política actual es bloqueante para cualquier hallazgo HIGH/CRITICAL y no usa `--ignore-unfixed`; revisar los artifacts del pipeline/tag reconstruido para confirmar la remediación y procedencia. El contexto, la línea de tiempo y las acciones preventivas están en [el postmortem](docs/postmortems/PM-2026-11-trivy-cve-discovery.md) y el procedimiento está en [el runbook](docs/runbooks/runbook-trivy-vulnerabilities.md).
 
 **Pendiente separado:** revisar el aviso moderado `NU1902` de `MySqlConnector 2.3.7` en API Tarjetas.
