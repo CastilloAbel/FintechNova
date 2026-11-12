@@ -31,7 +31,7 @@ Encontrar la primera etapa/job bloqueante, conservar evidencia y corregir la cau
 ## Security
 
 - Semgrep, Hadolint, Yamllint, Gitleaks y Compose pueden ser bloqueantes según su exit status.
-- Trivy tiene `allow_failure: true`: revisar artifacts de todas las imágenes aun si el pipeline siguió. Usar [runbook-trivy-vulnerabilities.md](runbook-trivy-vulnerabilities.md); verde no significa ausencia de CVEs.
+- Trivy bloquea ante hallazgos `HIGH` o `CRITICAL` corregibles; `--ignore-unfixed` excluye los que no tienen parche disponible. Descargar los artifacts y seguir [runbook-trivy-vulnerabilities.md](runbook-trivy-vulnerabilities.md); no continuar al deploy hasta remediar los findings que hicieron fallar el job.
 - Un reporte Trivy incompleto o job sin artifacts requiere investigar acceso al Registry, conectividad y error del scanner; no considerarlo escaneo limpio.
 
 ## Deploy / Terraform
