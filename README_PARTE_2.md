@@ -108,9 +108,9 @@ El pipeline integra herramientas de análisis estático y revisión de artefacto
 
 Durante las ejecuciones iniciales, **Trivy detectó vulnerabilidades de severidad HIGH** en las imágenes de MariaDB y API Facturas.
 
-A partir de los reportes se identificaron paquetes afectados y se actualizaron los Dockerfiles para incorporar correcciones disponibles. Posteriormente se reconstruyeron las imágenes y se repitieron los análisis. En el pipeline de referencia, el job de Trivy finalizó correctamente.
+A partir de los reportes se identificaron paquetes afectados y se actualizaron los Dockerfiles para incorporar correcciones disponibles. Posteriormente se reconstruyeron las imágenes y se repitieron los análisis. El pipeline de referencia es histórico y se ejecutó antes de establecer el gate bloqueante actual; su resultado no prueba el funcionamiento de la política vigente.
 
-El análisis de Trivy está configurado con `allow_failure: true`, por lo que actualmente funciona como control informativo y no como bloqueo obligatorio del despliegue. Una mejora futura es definir umbrales de severidad que impidan publicar imágenes con hallazgos críticos.
+La política vigente de Trivy es bloqueante para hallazgos `HIGH` o `CRITICAL` con corrección disponible. El job usa `--ignore-unfixed`, por lo que las vulnerabilidades sin fix conocido se excluyen del umbral de fallo. Los reportes JSON quedan como artifacts para investigar los hallazgos incluidos. El estado verde solo acredita el resultado de ese análisis, tag/digest, filtros y base de vulnerabilidades concretos.
 
 Las credenciales de AWS y demás valores sensibles se gestionan mediante variables de CI/CD, sin incluir secretos reales en el código fuente.
 
