@@ -25,7 +25,7 @@ Nunca copiar secretos a YAML, al repositorio, a artifacts ni a mensajes del job.
 ## Procedimiento
 
 1. Crear la feature con el prefijo `feat/` y abrir un MR a `main`.
-2. Confirmar que `validar_origen_mr` pasa y que tests, builds y jobs bloqueantes de security finalizan correctamente. Trivy tiene `allow_failure: true`: revisar su artifact aunque no bloquee el pipeline.
+2. Confirmar que `validar_origen_mr` pasa y que tests, builds y todos los jobs de security finalizan correctamente. Trivy bloquea ante hallazgos `HIGH`/`CRITICAL` corregibles y excluye los no corregibles con `--ignore-unfixed`; revisar sus artifacts y remediar los findings que hagan fallar el job.
 3. Aprobar y mergear el MR. El push resultante a `main` ejecuta automáticamente `deploy_terraform` si las etapas previas pasan.
 4. En el job, comprobar que el `terraform init`, `plan` y `apply` concluyan. El script compartido `scripts/deploy-ci.sh` prepara SSH, transfiere las ocho imágenes y archivos runtime y ejecuta `deploy.sh`.
 5. Confirmar en el log los ocho contenedores, MariaDB healthy y los resultados HTTPS esperados: web y cinco APIs HTTP 200; `/dashboard/` HTTP 401 sin autenticación.
@@ -34,7 +34,7 @@ Nunca copiar secretos a YAML, al repositorio, a artifacts ni a mensajes del job.
 ## Si el pipeline falla
 
 - **Test/build/security bloqueante:** no se ejecuta el deploy. Resolver el error en una rama, actualizar el MR y esperar un nuevo pipeline exitoso.
-- **Trivy:** `allow_failure: true` permite continuar, pero no equivale a aprobación de seguridad. Descargar el JSON correspondiente y seguir [runbook-trivy-vulnerabilities.md](runbook-trivy-vulnerabilities.md).
+- **Trivy:** los hallazgos `HIGH`/`CRITICAL` corregibles bloquean el pipeline y evitan el deploy; los no corregibles se excluyen con `--ignore-unfixed`. Descargar los JSON y seguir [runbook-trivy-vulnerabilities.md](runbook-trivy-vulnerabilities.md) para corregir y volver a ejecutar.
 - **Terraform state/auth:** no deshabilitar locking ni usar state local para evadir el error. Verificar vigencia y alcance del token del backend; revisar `terraform init` y lock. No volver a aplicar repetidamente ante un estado incierto.
 - **AWS credentials/quotas:** comprobar sesión y región del Learner Lab, revisar los errores concretos del provider y confirmar el estado del state antes de reintentar.
 - **SSH/health checks:** revisar `RUNNER_EGRESS_CIDR`, la IP resultante, el Security Group, el setup y logs de Compose. No borrar manualmente recursos que puedan pertenecer al state compartido sin revisar el impacto.
