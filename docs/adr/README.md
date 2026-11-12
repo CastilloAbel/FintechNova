@@ -13,7 +13,7 @@ Este directorio registra decisiones de arquitectura y operación relevantes de F
 | [ADR_005](ADR_005-shared-mariadb-and-ephemeral-persistence.md) | MariaDB compartida, bases lógicas por API y persistencia efímera en EC2. |
 | [ADR_006](ADR_006-edge-security-and-dashboard-access.md) | Exposición de red, TLS autofirmado, SSH efímero y protección del dashboard. |
 | [ADR_007](ADR_007-ci-testing-and-security-gates.md) | Decisión histórica de pruebas paralelas y Trivy informativo; reemplazada por ADR_008. |
-| [ADR_008](ADR_008-trivy-blocking-security-gate.md) | Gate bloqueante de Trivy para vulnerabilidades `HIGH` y `CRITICAL`, con o sin parche. |
+| [ADR_008](ADR_008-trivy-blocking-security-gate.md) | Gate bloqueante de Trivy para vulnerabilidades `HIGH` y `CRITICAL` corregibles; ignora las no corregibles. |
 
 ## Convención
 

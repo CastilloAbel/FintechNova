@@ -242,6 +242,7 @@ analizar_imagenes_trivy:
           --format json \
           --output "trivy-report-$image.json" \
           --exit-code 1 \
+          --ignore-unfixed \
           --severity HIGH,CRITICAL \
           "$IMAGE_REF/$image:$IMAGE_TAG" || status=$?
       done

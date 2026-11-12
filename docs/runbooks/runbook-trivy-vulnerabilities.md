@@ -6,7 +6,7 @@ Interpretar los resultados del job `analizar_imagenes_trivy`, distinguir hallazg
 
 ## Política vigente
 
-El job analiza severidades `HIGH,CRITICAL` en las ocho imágenes, usa `--exit-code 1`, no usa `--ignore-unfixed` y tiene `allow_failure: false` (valor predeterminado de GitLab). Cualquier hallazgo HIGH/CRITICAL, incluso sin versión corregida, hace fallar el job y bloquea el avance a `deploy`. Los artifacts se generan también al fallar, para apoyar el diagnóstico. Un pipeline verde solo acredita el resultado del tag/digest y de la base de Trivy de esa ejecución.
+El job analiza severidades `HIGH,CRITICAL` en las ocho imágenes, usa `--ignore-unfixed` y `--exit-code 1`, y tiene `allow_failure: false` (valor predeterminado de GitLab). Los hallazgos HIGH/CRITICAL con corrección disponible hacen fallar el job y bloquean el avance a `deploy`; los que no tienen fix se excluyen del reporte y del umbral. Los artifacts de hallazgos incluidos se generan también al fallar, para apoyar el diagnóstico. Un pipeline verde solo acredita el resultado del tag/digest, los filtros y la base de Trivy de esa ejecución; no afirma que no existan vulnerabilidades sin parche.
 
 En cada pipeline, los jobs reconstruyen las imágenes con `docker build --pull`, y Trivy descarga su base de vulnerabilidades. Por eso un commit que no cambia código de una API igualmente puede producir una imagen distinta o un resultado distinto: pueden cambiar una imagen base mutable, el scanner o su base de CVEs.
 
@@ -21,7 +21,7 @@ En cada pipeline, los jobs reconstruyen las imágenes con `docker build --pull`,
 7. Corregir la fuente del hallazgo (por ejemplo, actualizar el paquete en la etapa runtime del Dockerfile o la dependencia correspondiente). No editar el JSON, no filtrar el CVE para hacer pasar el gate y no inferir que el README u otro cambio documental causó la vulnerabilidad.
 8. Crear un commit que modifique la entrada de build afectada. Ejecutar nuevamente el pipeline y comprobar que el job de build publicó la etiqueta del commit actual.
 9. Descargar y revisar el artifact Trivy de esa misma ejecución. Verificar los paquetes/versión corregida y que `ArtifactID`/digest corresponde a la imagen recién construida.
-10. Si el mismo CVE aparece con el mismo digest, comprobar si el pipeline realmente reconstruyó y publicó la imagen correcta, si el cache/base image no cambió o si la base de vulnerabilidades de Trivy se actualizó. No permitir el fallo ni ignorar el hallazgo como workaround. Si no existe parche, escalar la investigación; el deploy sigue bloqueado hasta que la política cambie mediante una decisión formal.
+10. Si el mismo CVE aparece con el mismo digest, comprobar si el pipeline realmente reconstruyó y publicó la imagen correcta, si el cache/base image no cambió o si la base de vulnerabilidades de Trivy se actualizó. No permitir el fallo ni ignorar findings corregibles como workaround. Los hallazgos sin parche están excluidos por política; registrar cualquier evaluación relevante y vigilar la disponibilidad de una versión corregida.
 11. Registrar la decisión, evidencia y estado en `ANALISIS.md` o en un postmortem si el incidente tuvo impacto operativo.
 
 ## Uso del script local

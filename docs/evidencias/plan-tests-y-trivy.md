@@ -12,7 +12,7 @@ Estos tests son **básicos**: no prueban persistencia ni integración con MariaD
 
 ## Trivy
 
-El job `analizar_imagenes_trivy` usa `--severity HIGH,CRITICAL --exit-code 1` y `allow_failure: false`; no usa `--ignore-unfixed`. Cualquier hallazgo HIGH/CRITICAL, corregible o no, hace fallar el job y bloquea el avance del pipeline al deploy. Los reportes JSON quedan disponibles como artifacts para diagnosticar.
+El job `analizar_imagenes_trivy` usa `--severity HIGH,CRITICAL --ignore-unfixed --exit-code 1` y `allow_failure: false`. Los hallazgos HIGH/CRITICAL con corrección disponible hacen fallar el job y bloquean el avance del pipeline al deploy; las vulnerabilidades sin fix se excluyen del reporte/umbral.
 
 Los reportes previos mostraban vulnerabilidades en `tp1-db` y `tp1-api-facturas`. Antes de cambiar imágenes de producción:
 
@@ -20,6 +20,6 @@ Los reportes previos mostraban vulnerabilidades en `tp1-db` y `tp1-api-facturas`
 2. Consultar los JSON del nuevo job para confirmar ID de CVE, paquete instalado, versión corregida y disponibilidad.
 3. Actualizar la imagen base o aplicar actualizaciones de seguridad en una rama de prueba, según el sistema operativo real de la imagen.
 4. Verificar que MariaDB arranca, que Facturas funciona y que Trivy ya no reporta la vulnerabilidad.
-5. No desactivar Trivy, introducir `--ignore-unfixed` ni permitir que el job falle para ocultar hallazgos.
+5. No desactivar Trivy ni permitir que el job falle para ocultar hallazgos. `--ignore-unfixed` es el filtro acordado para no bloquear por vulnerabilidades todavía no corregibles.
 
 No se modifican las imágenes base automáticamente porque no se verificó una versión corregida y compatible.

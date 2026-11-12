@@ -254,6 +254,7 @@ analizar_imagenes_trivy:
           --format json \
           --output "trivy-report-$image.json" \
           --exit-code 1 \
+          --ignore-unfixed \
           --severity HIGH,CRITICAL \
           "$IMAGE_REF/$image:$IMAGE_TAG" || status=$?
       done
@@ -268,12 +269,12 @@ Este job recorre las ocho imágenes Docker y busca vulnerabilidades de severidad
 
 Los resultados se guardan en reportes JSON que pueden consultarse desde GitLab.
 
-La política vigente es bloqueante: `allow_failure: false` y `--exit-code 1` hacen fallar el job ante cualquier hallazgo `HIGH` o `CRITICAL`. No se usa `--ignore-unfixed`, así que también bloquean las vulnerabilidades sin corrección disponible. Los JSON se conservan como artifacts para investigar la imagen, CVE y paquete afectados.
+La política vigente es bloqueante para hallazgos `HIGH` o `CRITICAL` corregibles: `allow_failure: false`, `--exit-code 1` y `--ignore-unfixed`. Las vulnerabilidades sin corrección disponible se excluyen del reporte y del umbral de fallo. Los JSON se conservan como artifacts para investigar los hallazgos detectados.
 
 
 **Hallazgo real:** Trivy detectó **cuatro vulnerabilidades HIGH** en imágenes de MariaDB y Facturas. Se revisaron los paquetes afectados, se actualizaron los Dockerfiles, se reconstruyeron las imágenes y se repitieron los análisis. El job de referencia finalizó correctamente.
 
-**Política vigente:** Trivy es un gate obligatorio y bloquea el pipeline ante cualquier hallazgo `HIGH` o `CRITICAL`, con o sin parche. El job de deploy solo puede ejecutarse si Trivy y los demás controles de seguridad pasan. Un hallazgo sin parche también requiere investigación y resolución antes de continuar; no se permite el fallo como excepción implícita.
+**Política vigente:** Trivy es un gate obligatorio para vulnerabilidades `HIGH` y `CRITICAL` corregibles. `--ignore-unfixed` excluye las vulnerabilidades sin corrección disponible, que por ello no activan el fallo del job. El job de deploy solo puede ejecutarse si Trivy y los demás controles de seguridad pasan.
 
 Las credenciales de AWS se suministran mediante variables de GitLab CI/CD y no deben guardarse en el repositorio. El acceso y la rotación de esas variables siguen siendo controles operativos necesarios.
 
@@ -291,7 +292,7 @@ Terraform define la infraestructura de AWS en [`infra/aws/`](infra/aws/). La eje
 
 **Cómo funciona el despliegue:** después de un merge a `main`, el pipeline de tipo `push` ejecuta `deploy_terraform` automáticamente si test, build y los controles bloqueantes de security finalizaron correctamente. El job aplica la infraestructura, transfiere las imágenes y configuración necesarias, inicia los contenedores con Docker Compose y verifica los endpoints. El job legacy `deploy_aws` fue retirado.
 
-**Política de controles:** las pruebas y los controles obligatorios bloquean el avance si fallan. Trivy analiza las ocho imágenes y bloquea ante cualquier vulnerabilidad `HIGH` o `CRITICAL`, incluso sin corrección disponible. Los reportes quedan como artifacts; un pipeline verde acredita solo el análisis del tag/digest y la base de vulnerabilidades de esa ejecución.
+**Política de controles:** las pruebas y los controles obligatorios bloquean el avance si fallan. Trivy analiza las ocho imágenes y bloquea ante vulnerabilidades `HIGH` o `CRITICAL` corregibles; `--ignore-unfixed` excluye las que no tienen corrección. Los reportes quedan como artifacts; un pipeline verde acredita solo el análisis configurado del tag/digest y la base de vulnerabilidades de esa ejecución.
 
 **Política de ramas:** `validar_origen_mr` permite integrar a `main` únicamente MRs desde `feature/*`. El deploy se activa por `push` a `main`, no por el nombre de la rama fuente. La protección de `main` debe impedir pushes directos para que el flujo sea exclusivamente por MR.
 

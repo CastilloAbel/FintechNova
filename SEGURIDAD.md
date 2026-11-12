@@ -307,7 +307,7 @@ El pipeline ejecuta los controles en el stage `security`, después de construir 
 | Control | Herramienta | Alcance | Resultado |
 |---|---|---|---|
 | `analizar_codigo_semgrep` | Semgrep | Código fuente, Dockerfiles, YAML y lenguajes de las APIs | Bloquea hallazgos `ERROR` y genera `semgrep-report.json`. |
-| `analizar_imagenes_trivy` | Trivy | Las ocho imágenes del commit | Analiza vulnerabilidades `HIGH` y `CRITICAL`, corregibles o no, y genera un JSON por imagen; cualquier hallazgo hace fallar el job y bloquea el avance al deploy. |
+| `analizar_imagenes_trivy` | Trivy | Las ocho imágenes del commit | Analiza vulnerabilidades `HIGH` y `CRITICAL` corregibles con `--ignore-unfixed` y genera un JSON por imagen; los hallazgos incluidos hacen fallar el job y bloquean el avance al deploy. |
 | `analizar_dockerfiles` | Hadolint | Los ocho Dockerfiles declarados explícitamente | Bloquea errores de buenas prácticas Docker. |
 | `analizar_archivos_yaml` | Yamllint | CI, Compose y configuración de Traefik | Bloquea errores de sintaxis y formato YAML. |
 | `detectar_secretos` | Gitleaks | Árbol del repositorio | Bloquea secretos detectados y genera un reporte. |
@@ -320,7 +320,7 @@ El análisis detallado de los hallazgos está en [ANALISIS.md](ANALISIS.md). Los
 
 ### Política ante vulnerabilidades
 
-Los hallazgos `ERROR` de Semgrep y los errores bloqueantes de los demás controles detienen el pipeline. Trivy analiza las ocho imágenes con `--severity HIGH,CRITICAL` y `--exit-code 1`, sin `--ignore-unfixed`; por tanto, cualquier hallazgo `HIGH` o `CRITICAL`, tenga o no parche disponible, falla el job y bloquea el deploy automático de `main`. `allow_failure: false` explicita que el fallo no es tolerable (también es el comportamiento predeterminado de GitLab). Los artifacts deben revisarse para diagnosticar y remediar los hallazgos; un riesgo no se acepta implícitamente por marcar el job como permitido.
+Los hallazgos `ERROR` de Semgrep y los errores bloqueantes de los demás controles detienen el pipeline. Trivy analiza las ocho imágenes con `--severity HIGH,CRITICAL`, `--ignore-unfixed` y `--exit-code 1`; los hallazgos con corrección disponible fallan el job y bloquean el deploy automático de `main`. Las vulnerabilidades sin fix conocido se excluyen del reporte/umbral. `allow_failure: false` explicita que el fallo del job no es tolerable (también es el comportamiento predeterminado de GitLab). Los artifacts deben revisarse para diagnosticar y remediar los hallazgos incluidos.
 
 Los secretos se gestionan mediante variables protegidas y enmascaradas de GitLab o mediante archivos privados suministrados durante el despliegue. Nunca se agregan tokens, contraseñas, claves PEM, claves TLS ni archivos `.env` al repositorio.
 
@@ -346,7 +346,7 @@ La arquitectura aplica las siguientes medidas:
 
 ## Actualización CI/CD y Terraform (noviembre 2026)
 
-El nuevo `test_api_clientes` usa una base de datos simulada y no necesita secretos. `validar_terraform` verifica formato y configuración, pero no reemplaza una revisión de permisos IAM, Security Groups ni el análisis de riesgos. Trivy bloquea el avance ante vulnerabilidades HIGH/CRITICAL, incluso sin parche disponible; revisar sus artifacts para diagnosticar y remediar el job fallido. Las credenciales temporales de AWS y del backend HTTP de Terraform se suministran mediante variables de GitLab, nunca deben subirse al repositorio. El runner transfiere las imágenes a EC2 mediante SSH y `docker load`; la EC2 no hace login directo al registry.
+El nuevo `test_api_clientes` usa una base de datos simulada y no necesita secretos. `validar_terraform` verifica formato y configuración, pero no reemplaza una revisión de permisos IAM, Security Groups ni el análisis de riesgos. Trivy bloquea el avance ante vulnerabilidades HIGH/CRITICAL corregibles; `--ignore-unfixed` excluye las que no tienen parche disponible. Revisar los artifacts de los hallazgos detectados para diagnosticar y remediar el job fallido. Las credenciales temporales de AWS y del backend HTTP de Terraform se suministran mediante variables de GitLab, nunca deben subirse al repositorio. El runner transfiere las imágenes a EC2 mediante SSH y `docker load`; la EC2 no hace login directo al registry.
 
 
 ## Corrección de vulnerabilidades detectadas en el TP — noviembre 2026
