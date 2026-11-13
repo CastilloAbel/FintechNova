@@ -10,6 +10,7 @@ El flujo CI actual publica ocho imágenes en GitLab Container Registry y desplie
 
 <img src="docs/evidencias/diagrama-arquitectura.png" alt="Arquitectura de FinTech Nova" width="900">
 
+
 La solución está compuesta por ocho contenedores. Cada API mantiene sus dependencias y su entorno de ejecución, lo que permite construir y actualizar los componentes de forma independiente.
 
 | Servicio | Tecnología | Responsabilidad |
