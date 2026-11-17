@@ -657,19 +657,22 @@ jobs:
           export TF_VAR_ami_id="$AWS_EC2_AMI_ID"
           export TF_VAR_runner_ssh_cidr="$RUNNER_SSH_CIDR"
           export TF_VAR_resource_suffix="$GITHUB_RUN_ID"
-          export TF_VAR_ssh_public_key="$(cat "$TF_SSH_KEY.pub")"
+          TF_VAR_ssh_public_key="$(cat "$TF_SSH_KEY.pub")"
+          export TF_VAR_ssh_public_key
 
           terraform -chdir=infra/aws init -input=false -lock-timeout=5m
           terraform -chdir=infra/aws validate
           terraform -chdir=infra/aws plan -input=false -lock-timeout=5m -out="$TF_TMP_DIR/deploy.tfplan"
           terraform -chdir=infra/aws apply -input=false -auto-approve -lock-timeout=5m "$TF_TMP_DIR/deploy.tfplan"
 
-          export AWS_EC2_HOST="$(terraform -chdir=infra/aws output -raw public_ip)"
-          export AWS_EC2_USER="$(terraform -chdir=infra/aws output -raw ssh_user)"
+          AWS_EC2_HOST="$(terraform -chdir=infra/aws output -raw public_ip)"
+          AWS_EC2_USER="$(terraform -chdir=infra/aws output -raw ssh_user)"
+          export AWS_EC2_HOST AWS_EC2_USER
           export DEPLOY_SSH_KEY="$TF_SSH_KEY"
           export CI_REGISTRY=ghcr.io
           export CI_REGISTRY_USER="$GHCR_USERNAME"
           export CI_REGISTRY_PASSWORD="$GH_TOKEN"
-          export CI_PROJECT_PATH="$(printf '%s' "$GHCR_IMAGE_BASE" | sed 's#^ghcr.io/##' | tr '[:upper:]' '[:lower:]')"
+          CI_PROJECT_PATH="$(printf '%s' "$GHCR_IMAGE_BASE" | sed 's#^ghcr.io/##' | tr '[:upper:]' '[:lower:]')"
+          export CI_PROJECT_PATH
           export IMAGE_TAG="${GITHUB_SHA:0:8}"
           bash scripts/deploy-ci.sh
