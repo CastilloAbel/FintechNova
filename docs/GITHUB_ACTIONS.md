@@ -18,7 +18,7 @@ No se usa `pull_request_target`; los PRs no reciben secretos y no tienen permiso
 ### 1. GitLab: conservar acceso al Terraform State
 
 1. Abre el proyecto GitLab anterior y copia su Project ID numérico desde **Settings → General**.
-2. Si es GitLab.com, la URL base de API es `https://gitlab.com/api/v4`. En una instancia propia, usa la URL de API de esa instancia.
+2. `GITLAB_API_V4_URL` debe ser la raíz API V4, no la URL web del proyecto. GitLab.com usa `https://gitlab.com/api/v4`. Para la instancia de este proyecto, cuya URL web tiene el prefijo `/gitlab`, usa `https://labsys.frc.utn.edu.ar/gitlab/api/v4`.
 3. En **Settings → Access tokens**, verifica el Project Access Token existente: debe estar activo y no vencido, tener scope `api` y un rol con acceso al Terraform State HTTP. Identifica el username del bot asociado.
 4. Guarda el token únicamente como secreto en GitHub. No lo compartas por chat, no lo imprimas y no lo guardes en el repositorio.
 5. No borres ni archives el proyecto o el state `fintech-nova-sandbox`. El state debe seguir accesible en el endpoint `/projects/<PROJECT_ID>/terraform/state/fintech-nova-sandbox`, incluyendo lock/unlock.
@@ -31,7 +31,7 @@ En el repositorio, ve a **Settings → Secrets and variables → Actions → Var
 
 | Variable | Valor |
 |---|---|
-| `GITLAB_API_V4_URL` | URL base API V4, p. ej. `https://gitlab.com/api/v4` |
+| `GITLAB_API_V4_URL` | Raíz API V4: `https://gitlab.com/api/v4` o, para la instancia del proyecto, `https://labsys.frc.utn.edu.ar/gitlab/api/v4`. No pegar la URL web completa del proyecto. |
 | `GITLAB_PROJECT_ID` | ID numérico copiado del proyecto GitLab que guarda el state |
 | `AWS_DEFAULT_REGION` | Región activa del Learner Lab, donde existe la AMI |
 | `AWS_EC2_AMI_ID` | Opcional; configurar solo si la AMI predeterminada `ami-0c230065b91270bc6` no corresponde a esa región |
@@ -53,6 +53,8 @@ En **Settings → Environments**, crea el entorno `aws-sandbox`. En sus **Enviro
 - `IPAPI_TOKEN` (solo si se usa la integración)
 
 Los secretos del entorno solo se usan en el job de deploy, que se limita a push a `main`. Actualiza las credenciales temporales de AWS Academy antes de cada despliegue. El workflow valida que las obligatorias estén presentes, pero no puede validar su vigencia hasta contactar AWS o GitLab.
+
+Antes de ejecutar Terraform, el workflow consulta de forma autenticada el endpoint del state, sin imprimir ni subir su contenido. Si la URL, el Project ID, el token o el state no corresponden, el job termina en ese preflight y muestra el estado HTTP o una indicación de formato; no ejecuta `plan` ni `apply`.
 
 No es necesario duplicar `CI_REGISTRY_*`, `CI_COMMIT_*`, `CI_PROJECT_*`, `IMAGE_TAG`, `RUNNER_EGRESS_CIDR` ni tags de runners de GitLab. GitHub proporciona el contexto de commit, y el workflow calcula GHCR y el egress del runner.
 
