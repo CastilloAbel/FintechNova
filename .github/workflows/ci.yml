@@ -602,23 +602,10 @@ jobs:
           case "$GITLAB_PROJECT_ID" in
             *[!0-9]*) echo "GITLAB_PROJECT_ID debe ser el ID numérico del proyecto GitLab"; exit 1 ;;
           esac
-          python3 - "$GITLAB_API_V4_URL" <<'PY'
-          import sys
-          from urllib.parse import urlsplit
-
-          url = urlsplit(sys.argv[1])
-          if (
-              url.scheme != "https"
-              or not url.hostname
-              or not url.path.rstrip("/").endswith("/api/v4")
-              or url.query
-              or url.fragment
-          ):
-              raise SystemExit(
-                  "GITLAB_API_V4_URL debe ser la raíz API V4, p. ej. "
-                  "https://gitlab.example.com/gitlab/api/v4; no uses la URL del proyecto"
-              )
-              PY
+          case "$GITLAB_API_V4_URL" in
+            https://*/api/v4|https://*/api/v4/) ;;
+            *) echo "GITLAB_API_V4_URL debe ser la raíz API V4 (por ejemplo, https://gitlab.example.com/gitlab/api/v4), no la URL del proyecto"; exit 1 ;;
+          esac
       - name: Determinar y validar egress IPv4 del runner
         id: egress
         run: |
