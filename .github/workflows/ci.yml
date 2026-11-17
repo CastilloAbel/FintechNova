@@ -599,6 +599,25 @@ jobs:
             eval "value=\${$name:-}"
             test -n "$value" || { echo "Falta configurar $name en GitHub"; exit 1; }
           done
+          case "$GITLAB_PROJECT_ID" in
+            *[!0-9]*) echo "GITLAB_PROJECT_ID debe ser el ID numérico del proyecto GitLab"; exit 1 ;;
+          esac
+          python3 - "$GITLAB_API_V4_URL" <<'PY'
+          import sys
+          from urllib.parse import urlsplit
+
+          url = urlsplit(sys.argv[1])
+          if (
+              url.scheme != "https"
+              or not url.hostname
+              or not url.path.rstrip("/").endswith("/api/v4")
+              or url.query
+              or url.fragment
+          ):
+              raise SystemExit(
+                  "GITLAB_API_V4_URL debe ser la raíz API V4, p. ej. "
+                  "https://gitlab.example.com/gitlab/api/v4; no uses la URL del proyecto"
+              )
       - name: Determinar y validar egress IPv4 del runner
         id: egress
         run: |
@@ -651,6 +670,38 @@ jobs:
           cleanup() { rm -rf -- "$TF_TMP_DIR"; }
           trap cleanup EXIT
           trap 'exit 1' HUP INT TERM
+
+          # Verificar URL, autenticación y formato del state antes de invocar Terraform.
+          GITLAB_HOST="$(python3 - "$GITLAB_API_V4_URL" <<'PY'
+          import sys
+          from urllib.parse import urlsplit
+
+          print(urlsplit(sys.argv[1]).hostname)
+          PY
+          )"
+          GITLAB_NETRC="$TF_TMP_DIR/gitlab.netrc"
+          GITLAB_STATE_RESPONSE="$TF_TMP_DIR/gitlab-state.json"
+          printf 'machine %s login %s password %s\n' \
+            "$GITLAB_HOST" "$TF_STATE_USERNAME" "$TF_STATE_PASSWORD" > "$GITLAB_NETRC"
+          chmod 600 "$GITLAB_NETRC"
+          if ! GITLAB_HTTP_STATUS="$(curl --silent --show-error \
+            --netrc-file "$GITLAB_NETRC" \
+            --output "$GITLAB_STATE_RESPONSE" \
+            --write-out '%{http_code}' \
+            "$TF_HTTP_ADDRESS")"; then
+            echo "No se pudo consultar el Terraform State de GitLab. Verifica GITLAB_API_V4_URL, conectividad y credenciales."
+            exit 1
+          fi
+          if [ "$GITLAB_HTTP_STATUS" != 200 ]; then
+            echo "GitLab respondió HTTP $GITLAB_HTTP_STATUS al leer el state. Verifica la API V4, el Project ID, el state y permisos del token."
+            exit 1
+          fi
+          if ! jq -e '(.version | type == "number") and (.serial | type == "number") and (.lineage | type == "string")' \
+            "$GITLAB_STATE_RESPONSE" > /dev/null; then
+            echo "La respuesta de GitLab no tiene formato Terraform State JSON. GITLAB_API_V4_URL debe terminar en /api/v4, no ser la URL del proyecto."
+            exit 1
+          fi
+          echo "Terraform State de GitLab accesible y con formato válido."
 
           ssh-keygen -q -t ed25519 -N '' -C "github-${GITHUB_REPOSITORY_ID}-${GITHUB_RUN_ID}" -f "$TF_SSH_KEY"
           export TF_VAR_aws_region="$AWS_DEFAULT_REGION"
