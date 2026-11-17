@@ -4,7 +4,7 @@
 
 FinTech Nova reúne la gestión de clientes, pagos, facturas, transacciones y tarjetas mediante una interfaz web y cinco APIs independientes. El trabajo comprende la dockerización de los componentes, su integración con Docker Compose y el despliegue en Amazon EC2 con acceso HTTPS.
 
-El flujo CI actual publica ocho imágenes en GitLab Container Registry y despliega mediante Terraform en AWS EC2. El repositorio también conserva el procedimiento histórico de Docker Hub, una instancia compartida de MariaDB con almacenamiento persistente y scripts para construcción, preparación de archivos privados y despliegue. Este documento presenta la arquitectura, las decisiones de implementación y las evidencias de las pruebas registradas.
+El workflow de GitHub Actions en `.github/workflows/ci.yml` migra el CI/CD a GitHub y publica imágenes en GHCR; el despliegue se limita a pushes a `main` que superen test, build y security. `.gitlab-ci.yml` se conserva como referencia histórica y GitLab sigue siendo necesario para alojar el Terraform State remoto. Consulta [la guía de configuración de GitHub Actions](docs/GITHUB_ACTIONS.md) antes de habilitar un deploy. El repositorio también conserva el procedimiento histórico de Docker Hub, una instancia compartida de MariaDB con almacenamiento persistente y scripts para construcción, preparación de archivos privados y despliegue.
 
 ## 1. Arquitectura e integración
 
@@ -111,7 +111,7 @@ El build genera imágenes para `linux/amd64`, en correspondencia con la instanci
 
 ### Selección de imágenes
 
-Las referencias utilizan `DOCKER_USER` e `IMAGE_TAG` para seleccionar el namespace del registry y una versión común. En el procedimiento histórico local se utilizaba Docker Hub; los jobs CI actuales configuran el path de GitLab Container Registry:
+Las referencias utilizan `DOCKER_USER` e `IMAGE_TAG` para seleccionar el namespace del registry y una versión común. El procedimiento local histórico utilizaba Docker Hub; el pipeline GitLab histórico configuraba GitLab Container Registry y el nuevo workflow configura GHCR:
 
 ```yaml
 image: ${DOCKER_USER}/tp1-api-clientes:${IMAGE_TAG}
@@ -433,16 +433,22 @@ Los finales de línea CRLF produjeron errores al ejecutar scripts en Linux. Se c
 La instalación del paquete completo `curl` entraba en conflicto con `curl-minimal` en Amazon Linux. El deploy se ajustó para instalar Docker y utilizar el curl disponible. El plugin Compose se descarga por separado.
 
 
-## 10. Pipeline actual de GitLab CI/CD
+## Migración a GitHub Actions
 
-Además del procedimiento histórico ejecutado desde una PC que se describe en las secciones anteriores, el repositorio cuenta con un pipeline GitLab que construye las imágenes para GitLab Container Registry, ejecuta controles y despliega automáticamente mediante Terraform tras un pipeline exitoso de `main`. El bloque de Docker Hub de la sección 5 corresponde a la publicación histórica mediante `build.sh`; no describe el registry utilizado por los jobs actuales.
+El workflow `.github/workflows/ci.yml` organiza cuatro stages (`test`, `build`, `security`, `deploy`). Test, build y security validan ramas y PRs; solo el push a `main` publica en GHCR y, después de superar los gates de seguridad, puede desplegar con Terraform. El deploy conserva el state HTTP `fintech-nova-sandbox` en GitLab y transfiere las imágenes por SSH; requiere configurar variables, secretos, permisos del package y AWS Academy. Ver [la guía operativa de GitHub Actions](docs/GITHUB_ACTIONS.md).
+
+La primera validación debe ejecutarse en una rama `feature/*`: allí los builds y Trivy se ejecutan localmente, sin publicar imágenes ni usar secretos. Antes de permitir el primer deploy a `main`, comprobar el token del state GitLab y la sesión AWS Academy. Terraform puede reemplazar la instancia y perder los datos locales de EC2 en cada ejecución.
+
+## 10. Pipeline histórico de GitLab CI/CD
+
+Esta sección documenta el pipeline original de GitLab, conservado en `.gitlab-ci.yml` como referencia de la migración. El workflow activo es GitHub Actions y se describe arriba y en [docs/GITHUB_ACTIONS.md](docs/GITHUB_ACTIONS.md). El bloque de Docker Hub de la sección 5 corresponde a la publicación histórica mediante `build.sh`.
 
 ### Flujo del pipeline
 
 Las etapas se ejecutan en este orden:
 
 1. **Test:** `prueba_pipeline` y `validar_terraform`. Este último ejecuta fmt/validate para `infra/aws`; no aprovisiona recursos ni valida el backend remoto.
-2. **Build:** ocho jobs independientes construyen y publican Traefik, MariaDB, las cinco APIs y Web en GitLab Container Registry con el tag del commit.
+2. **Build:** ocho jobs independientes construían y publicaban Traefik, MariaDB, las cinco APIs y Web en GitLab Container Registry con el tag del commit.
 3. **Security:** se valida Compose, se ejecutan Hadolint, Semgrep, Trivy, Yamllint y Gitleaks. Trivy analiza las ocho imágenes y bloquea ante hallazgos `HIGH` o `CRITICAL` corregibles; los que todavía no tienen corrección se excluyen con `--ignore-unfixed`.
 4. **Deploy:** `deploy_terraform` se ejecuta automáticamente, y solo en el pipeline de tipo `push` de `main`, cuando las etapas anteriores terminan correctamente. En particular, el merge de una rama `feature/*` a `main` produce el pipeline que despliega. Las imágenes se descargan en el runner y se transfieren porque `deploy.sh` usa `--pull never`.
 
@@ -450,7 +456,7 @@ Las etapas se ejecutan en este orden:
 
 Se retiró el job legacy `deploy_aws`. El único job de despliegue es `deploy_terraform`, que aprovisiona o actualiza la instancia Terraform y luego transfiere imágenes y configuración, ejecuta `deploy.sh` y espera sus verificaciones HTTPS.
 
-La regla CI se basa en el evento `push` a `main`, no en el nombre de la rama fuente: una vez integrado un cambio de `feature/*`, GitLab crea el pipeline de `main` y ese pipeline despliega automáticamente. GitLab no conserva la rama fuente como variable de un pipeline normal de push; por ello, la regla también desplegaría otros commits que lleguen a `main`. Para que la política operativa sea “solo cambios de `feature/*`”, proteger `main`, impedir pushes directos y aceptar cambios únicamente mediante merge requests desde ramas con ese prefijo.
+La regla del pipeline GitLab histórico se basaba en el evento `push` a `main`, no en el nombre de la rama fuente: una vez integrado un cambio de `feature/*`, GitLab creaba el pipeline de `main` y ese pipeline desplegaba automáticamente. GitLab no conserva la rama fuente como variable de un pipeline normal de push; por ello, la regla también desplegaba otros commits que llegaran a `main`. En GitHub, proteger `main`, impedir pushes directos y aceptar cambios únicamente mediante pull requests de ramas con ese prefijo.
 
 El AWS Academy Learner Lab debe estar activo y sus variables protegidas deben estar actualizadas antes del merge que dispare el deploy. Tras completar las verificaciones, el job imprime `https://<IP>/` y `https://<IP>/dashboard/`. El certificado es autofirmado.
 
@@ -497,4 +503,4 @@ Para ejecutarlas localmente: `cd aplicaciones-contenedores/api-clientes`, instal
 - Capturas de Parte 1: conservadas en `docs/evidencias/`, **no corresponden a la última sesión Terraform**.
 - **Pendiente antes de entregar:** agregar capturas reales de la misma sesión de AWS Academy para el pipeline completo, job `deploy_terraform` (incluyendo `terraform apply`), EC2 creada y aplicación abierta en HTTPS. Guardarlas en `docs/evidencias/` y enlazarlas aquí.
 
-El despliegue Terraform ahora es automático en los pipelines `push` de `main`, después de superar los controles previos. Mergear `feature/*` inicia el pipeline que despliega; para limitar el origen de cambios, `main` debe estar protegida y aceptar únicamente merge requests con ese prefijo.
+El despliegue Terraform de GitHub Actions está condicionado a los pipelines `push` de `main`, después de superar los controles previos. Mergear `feature/*` inicia el pipeline que puede desplegar; para limitar el origen de cambios, `main` debe estar protegida y aceptar únicamente pull requests con ese prefijo.
