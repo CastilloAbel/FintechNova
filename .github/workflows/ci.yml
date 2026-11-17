@@ -149,7 +149,7 @@ jobs:
   # Stage 2: build. Los builds de PR no tienen permiso de escritura en GHCR.
   build_local:
     name: build / ${{ matrix.image }} (sin publicar)
-    if: needs.stage_test.result == 'success' && github.ref != 'refs/heads/main'
+    if: always() && needs.stage_test.result == 'success' && github.ref != 'refs/heads/main'
     needs: stage_test
     runs-on: ubuntu-latest
     strategy:
@@ -187,7 +187,7 @@ jobs:
 
   build_publish:
     name: build / publicar ${{ matrix.image }} en GHCR
-    if: needs.stage_test.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: always() && needs.stage_test.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: stage_test
     runs-on: ubuntu-latest
     permissions:
@@ -268,6 +268,7 @@ jobs:
   # Stage 3: security. Los PRs construyen y escanean imágenes locales; main escanea los tags publicados.
   security_compose:
     name: security / Docker Compose
+    if: always() && needs.stage_build.result == 'success'
     needs: stage_build
     runs-on: ubuntu-latest
     steps:
@@ -277,6 +278,7 @@ jobs:
 
   security_dockerfiles:
     name: security / Hadolint
+    if: always() && needs.stage_build.result == 'success'
     needs: stage_build
     runs-on: ubuntu-latest
     steps:
@@ -307,6 +309,7 @@ jobs:
 
   security_semgrep:
     name: security / Semgrep
+    if: always() && needs.stage_build.result == 'success'
     needs: stage_build
     runs-on: ubuntu-latest
     steps:
@@ -330,6 +333,7 @@ jobs:
 
   security_yaml:
     name: security / YAML lint
+    if: always() && needs.stage_build.result == 'success'
     needs: stage_build
     runs-on: ubuntu-latest
     steps:
@@ -353,6 +357,7 @@ jobs:
 
   security_actionlint:
     name: security / actionlint
+    if: always() && needs.stage_build.result == 'success'
     needs: stage_build
     runs-on: ubuntu-latest
     steps:
@@ -362,6 +367,7 @@ jobs:
 
   security_gitleaks:
     name: security / Gitleaks
+    if: always() && needs.stage_build.result == 'success'
     needs: stage_build
     runs-on: ubuntu-latest
     steps:
@@ -387,7 +393,7 @@ jobs:
 
   security_trivy_local:
     name: security / Trivy ${{ matrix.image }} (local)
-    if: needs.stage_build.result == 'success' && github.ref != 'refs/heads/main'
+    if: always() && needs.stage_build.result == 'success' && github.ref != 'refs/heads/main'
     needs: stage_build
     runs-on: ubuntu-latest
     strategy:
@@ -446,7 +452,7 @@ jobs:
 
   security_trivy_ghcr:
     name: security / Trivy ${{ matrix.image }} (GHCR)
-    if: needs.stage_build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: always() && needs.stage_build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: stage_build
     runs-on: ubuntu-latest
     permissions:
@@ -543,7 +549,7 @@ jobs:
   # Stage 4: solo se ejecuta tras push directo/merge a main y el éxito de los tres gates.
   deploy:
     name: deploy / Terraform y EC2
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.stage_security.result == 'success'
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.stage_test.result == 'success' && needs.stage_build.result == 'success' && needs.stage_security.result == 'success'
     needs:
       - stage_test
       - stage_build
