@@ -1,0 +1,669 @@
+name: FinTech Nova CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  # Stage 1: test. Jobs independientes se ejecutan en paralelo.
+  validar_origen:
+    name: test / origen de rama
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validar prefijo permitido
+        env:
+          SOURCE_BRANCH: ${{ github.head_ref }}
+        run: |
+          case "$SOURCE_BRANCH" in
+            feature/*) echo "Origen permitido: $SOURCE_BRANCH" ;;
+            *) echo "Solo se permiten ramas feature/* hacia main"; exit 1 ;;
+          esac
+
+  test_clientes:
+    name: test / API Clientes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Instalar dependencias y ejecutar pruebas
+        working-directory: aplicaciones-contenedores/api-clientes
+        run: |
+          python -m pip install --no-cache-dir -r requirements.txt
+          python -m unittest discover -s tests -p 'test_*.py' -v
+
+  test_pagos:
+    name: test / API Pagos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Instalar dependencias y ejecutar pruebas
+        working-directory: aplicaciones-contenedores/api-pagos
+        run: |
+          npm ci --no-audit --no-fund
+          node --test tests/*.test.js
+
+  test_facturas:
+    name: test / API Facturas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Ejecutar pruebas Maven
+        working-directory: aplicaciones-contenedores/api-facturas
+        run: mvn -B test
+
+  test_tarjetas:
+    name: test / API Tarjetas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Smoke test
+        run: sh aplicaciones-contenedores/api-tarjetas/tests/smoke.sh
+
+  test_transacciones:
+    name: test / API Transacciones
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+      - name: Ejecutar pruebas Go
+        working-directory: aplicaciones-contenedores/api-transacciones
+        run: go test ./... -v
+
+  test_terraform:
+    name: test / Terraform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.17.1
+          terraform_wrapper: false
+      - name: Formato y validación sin backend remoto
+        run: |
+          terraform fmt -check -recursive infra
+          terraform -chdir=infra/aws init -backend=false -input=false -lockfile=readonly
+          terraform -chdir=infra/aws validate
+
+  stage_test:
+    name: test / etapa completa
+    if: always()
+    needs:
+      - validar_origen
+      - test_clientes
+      - test_pagos
+      - test_facturas
+      - test_tarjetas
+      - test_transacciones
+      - test_terraform
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar todos los controles de test
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BRANCH_RESULT: ${{ needs.validar_origen.result }}
+          CLIENTES_RESULT: ${{ needs.test_clientes.result }}
+          PAGOS_RESULT: ${{ needs.test_pagos.result }}
+          FACTURAS_RESULT: ${{ needs.test_facturas.result }}
+          TARJETAS_RESULT: ${{ needs.test_tarjetas.result }}
+          TRANSACCIONES_RESULT: ${{ needs.test_transacciones.result }}
+          TERRAFORM_RESULT: ${{ needs.test_terraform.result }}
+        run: |
+          set -eu
+          for result in \
+            "$CLIENTES_RESULT" "$PAGOS_RESULT" "$FACTURAS_RESULT" \
+            "$TARJETAS_RESULT" "$TRANSACCIONES_RESULT" "$TERRAFORM_RESULT"; do
+            test "$result" = success || { echo "Falló un control de test: $result"; exit 1; }
+          done
+          if [ "$EVENT_NAME" = pull_request ]; then
+            test "$BRANCH_RESULT" = success || { echo "Falló la validación de rama"; exit 1; }
+          else
+            test "$BRANCH_RESULT" = skipped || { echo "Resultado inesperado de validación de rama: $BRANCH_RESULT"; exit 1; }
+          fi
+
+  # Stage 2: build. Los builds de PR no tienen permiso de escritura en GHCR.
+  build_local:
+    name: build / ${{ matrix.image }} (sin publicar)
+    if: needs.stage_test.result == 'success' && github.ref != 'refs/heads/main'
+    needs: stage_test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: tp1-traefik
+            dockerfile: traefik/Dockerfile
+            context: traefik
+          - image: tp1-db
+            dockerfile: aplicaciones-contenedores/db/Dockerfile
+            context: aplicaciones-contenedores/db
+          - image: tp1-api-clientes
+            dockerfile: aplicaciones-contenedores/api-clientes/Dockerfile
+            context: aplicaciones-contenedores/api-clientes
+          - image: tp1-api-pagos
+            dockerfile: aplicaciones-contenedores/api-pagos/Dockerfile
+            context: aplicaciones-contenedores/api-pagos
+          - image: tp1-api-facturas
+            dockerfile: aplicaciones-contenedores/api-facturas/Dockerfile
+            context: aplicaciones-contenedores
+          - image: tp1-api-tarjetas
+            dockerfile: aplicaciones-contenedores/api-tarjetas/Dockerfile
+            context: aplicaciones-contenedores
+          - image: tp1-api-transacciones
+            dockerfile: aplicaciones-contenedores/api-transacciones/Dockerfile
+            context: aplicaciones-contenedores
+          - image: tp1-web
+            dockerfile: aplicaciones-contenedores/web/Dockerfile
+            context: aplicaciones-contenedores
+    steps:
+      - uses: actions/checkout@v4
+      - name: Construir imagen linux/amd64
+        run: docker build --pull --platform linux/amd64 -f "${{ matrix.dockerfile }}" -t "local/${{ matrix.image }}:${IMAGE_TAG}" "${{ matrix.context }}"
+
+  build_publish:
+    name: build / publicar ${{ matrix.image }} en GHCR
+    if: needs.stage_test.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: stage_test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: tp1-traefik
+            dockerfile: traefik/Dockerfile
+            context: traefik
+          - image: tp1-db
+            dockerfile: aplicaciones-contenedores/db/Dockerfile
+            context: aplicaciones-contenedores/db
+          - image: tp1-api-clientes
+            dockerfile: aplicaciones-contenedores/api-clientes/Dockerfile
+            context: aplicaciones-contenedores/api-clientes
+          - image: tp1-api-pagos
+            dockerfile: aplicaciones-contenedores/api-pagos/Dockerfile
+            context: aplicaciones-contenedores/api-pagos
+          - image: tp1-api-facturas
+            dockerfile: aplicaciones-contenedores/api-facturas/Dockerfile
+            context: aplicaciones-contenedores
+          - image: tp1-api-tarjetas
+            dockerfile: aplicaciones-contenedores/api-tarjetas/Dockerfile
+            context: aplicaciones-contenedores
+          - image: tp1-api-transacciones
+            dockerfile: aplicaciones-contenedores/api-transacciones/Dockerfile
+            context: aplicaciones-contenedores
+          - image: tp1-web
+            dockerfile: aplicaciones-contenedores/web/Dockerfile
+            context: aplicaciones-contenedores
+    steps:
+      - uses: actions/checkout@v4
+      - name: Iniciar sesión en GHCR con token efímero
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Construir y publicar tags de commit y latest
+        env:
+          IMAGE_BASE: ghcr.io/${{ github.repository }}
+        run: |
+          IMAGE_BASE="$(printf '%s' "$IMAGE_BASE" | tr '[:upper:]' '[:lower:]')"
+          IMAGE_REF="$IMAGE_BASE/${{ matrix.image }}"
+          docker build --pull --platform linux/amd64 \
+            -f "${{ matrix.dockerfile }}" \
+            -t "$IMAGE_REF:${IMAGE_TAG:0:8}" \
+            -t "$IMAGE_REF:latest" \
+            "${{ matrix.context }}"
+          docker push "$IMAGE_REF:${IMAGE_TAG:0:8}"
+          docker push "$IMAGE_REF:latest"
+
+  stage_build:
+    name: build / etapa completa
+    if: always()
+    needs:
+      - build_local
+      - build_publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar la variante de build correspondiente al evento
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref }}
+          LOCAL_RESULT: ${{ needs.build_local.result }}
+          PUBLISH_RESULT: ${{ needs.build_publish.result }}
+        run: |
+          set -eu
+          if [ "$EVENT_NAME" = push ] && [ "$REF_NAME" = refs/heads/main ]; then
+            test "$PUBLISH_RESULT" = success || { echo "Falló la publicación de imágenes: $PUBLISH_RESULT"; exit 1; }
+            test "$LOCAL_RESULT" = skipped || { echo "Resultado inesperado del build local: $LOCAL_RESULT"; exit 1; }
+          else
+            test "$LOCAL_RESULT" = success || { echo "Falló el build local: $LOCAL_RESULT"; exit 1; }
+            test "$PUBLISH_RESULT" = skipped || { echo "Resultado inesperado de publicación: $PUBLISH_RESULT"; exit 1; }
+          fi
+
+  # Stage 3: security. Los PRs construyen y escanean imágenes locales; main escanea los tags publicados.
+  security_compose:
+    name: security / Docker Compose
+    needs: stage_build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar docker-compose.yml
+        run: docker compose config --no-interpolate --quiet
+
+  security_dockerfiles:
+    name: security / Hadolint
+    needs: stage_build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Analizar Dockerfiles
+        run: |
+          set +e
+          docker run --rm -v "$PWD:/work" -w /work --entrypoint hadolint hadolint/hadolint:latest-debian \
+            --failure-threshold error \
+            traefik/Dockerfile \
+            aplicaciones-contenedores/db/Dockerfile \
+            aplicaciones-contenedores/api-clientes/Dockerfile \
+            aplicaciones-contenedores/api-pagos/Dockerfile \
+            aplicaciones-contenedores/api-facturas/Dockerfile \
+            aplicaciones-contenedores/api-tarjetas/Dockerfile \
+            aplicaciones-contenedores/api-transacciones/Dockerfile \
+            aplicaciones-contenedores/web/Dockerfile > hadolint-report.txt 2>&1
+          status=$?
+          cat hadolint-report.txt
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hadolint-report-${{ github.run_id }}
+          path: hadolint-report.txt
+          if-no-files-found: warn
+          retention-days: 7
+
+  security_semgrep:
+    name: security / Semgrep
+    needs: stage_build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Analizar código fuente
+        run: |
+          set +e
+          docker run --rm -v "$PWD:/work" -w /work --entrypoint semgrep semgrep/semgrep:latest \
+            --config auto --severity ERROR --json \
+            --output /work/semgrep-report.json --error /work
+          status=$?
+          test -s semgrep-report.json || printf '{"error":"Semgrep no generó el reporte"}\n' > semgrep-report.json
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-report-${{ github.run_id }}
+          path: semgrep-report.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  security_yaml:
+    name: security / YAML lint
+    needs: stage_build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Analizar YAML de GitLab, Actions, Compose y Traefik
+        run: |
+          set +e
+          docker run --rm -v "$PWD:/work" -w /work --entrypoint yamllint cytopia/yamllint:latest \
+            -d '{extends: relaxed, rules: {line-length: disable}}' \
+            .gitlab-ci.yml docker-compose.yml .github/workflows traefik > yamllint-report.txt 2>&1
+          status=$?
+          cat yamllint-report.txt
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yamllint-report-${{ github.run_id }}
+          path: yamllint-report.txt
+          if-no-files-found: warn
+          retention-days: 7
+
+  security_actionlint:
+    name: security / actionlint
+    needs: stage_build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar sintaxis y expresiones de GitHub Actions
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest .github/workflows/ci.yml
+
+  security_gitleaks:
+    name: security / Gitleaks
+    needs: stage_build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detectar secretos en el historial completo
+        run: |
+          set +e
+          docker run --rm -v "$PWD:/work" -w /work --entrypoint gitleaks zricethezav/gitleaks:latest \
+            detect --source /work --redact --report-format json \
+            --report-path /work/gitleaks-report.json
+          status=$?
+          test -s gitleaks-report.json || printf '[]\n' > gitleaks-report.json
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitleaks-report-${{ github.run_id }}
+          path: gitleaks-report.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  security_trivy_local:
+    name: security / Trivy ${{ matrix.image }} (local)
+    if: needs.stage_build.result == 'success' && github.ref != 'refs/heads/main'
+    needs: stage_build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - tp1-traefik
+          - tp1-db
+          - tp1-api-clientes
+          - tp1-api-pagos
+          - tp1-api-facturas
+          - tp1-api-tarjetas
+          - tp1-api-transacciones
+          - tp1-web
+    steps:
+      - uses: actions/checkout@v4
+      - name: Construir imagen para análisis
+        env:
+          IMAGE_NAME: ${{ matrix.image }}
+        run: |
+          case "$IMAGE_NAME" in
+            tp1-traefik) dockerfile=traefik/Dockerfile; context=traefik ;;
+            tp1-db) dockerfile=aplicaciones-contenedores/db/Dockerfile; context=aplicaciones-contenedores/db ;;
+            tp1-api-clientes) dockerfile=aplicaciones-contenedores/api-clientes/Dockerfile; context=aplicaciones-contenedores/api-clientes ;;
+            tp1-api-pagos) dockerfile=aplicaciones-contenedores/api-pagos/Dockerfile; context=aplicaciones-contenedores/api-pagos ;;
+            tp1-api-facturas) dockerfile=aplicaciones-contenedores/api-facturas/Dockerfile; context=aplicaciones-contenedores ;;
+            tp1-api-tarjetas) dockerfile=aplicaciones-contenedores/api-tarjetas/Dockerfile; context=aplicaciones-contenedores ;;
+            tp1-api-transacciones) dockerfile=aplicaciones-contenedores/api-transacciones/Dockerfile; context=aplicaciones-contenedores ;;
+            tp1-web) dockerfile=aplicaciones-contenedores/web/Dockerfile; context=aplicaciones-contenedores ;;
+            *) echo "Imagen no reconocida: $IMAGE_NAME"; exit 1 ;;
+          esac
+          docker build --pull --platform linux/amd64 -f "$dockerfile" -t "local/$IMAGE_NAME:${IMAGE_TAG:0:8}" "$context"
+          docker save "local/$IMAGE_NAME:${IMAGE_TAG:0:8}" -o "$RUNNER_TEMP/image.tar"
+      - name: Analizar vulnerabilidades HIGH y CRITICAL
+        env:
+          IMAGE_NAME: ${{ matrix.image }}
+        run: |
+          set +e
+          docker run --rm \
+            -v "$RUNNER_TEMP:/tmp/trivy" \
+            -v "$PWD:/work" \
+            aquasec/trivy:latest image \
+            --input /tmp/trivy/image.tar \
+            --format json --output "/work/trivy-report-$IMAGE_NAME.json" \
+            --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL
+          status=$?
+          test -s "trivy-report-$IMAGE_NAME.json" || printf '{"error":"Trivy no generó el reporte"}\n' > "trivy-report-$IMAGE_NAME.json"
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-${{ matrix.image }}-${{ github.run_id }}
+          path: trivy-report-${{ matrix.image }}.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  security_trivy_ghcr:
+    name: security / Trivy ${{ matrix.image }} (GHCR)
+    if: needs.stage_build.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: stage_build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - tp1-traefik
+          - tp1-db
+          - tp1-api-clientes
+          - tp1-api-pagos
+          - tp1-api-facturas
+          - tp1-api-tarjetas
+          - tp1-api-transacciones
+          - tp1-web
+    steps:
+      - uses: actions/checkout@v4
+      - name: Analizar imagen publicada en este commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_NAME: ${{ matrix.image }}
+          IMAGE_BASE: ghcr.io/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          IMAGE_BASE="$(printf '%s' "$IMAGE_BASE" | tr '[:upper:]' '[:lower:]')"
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          set +e
+          docker run --rm \
+            -v "$HOME/.docker:/root/.docker:ro" \
+            -v "$PWD:/work" \
+            aquasec/trivy:latest image \
+            --format json --output "/work/trivy-report-$IMAGE_NAME.json" \
+            --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL \
+            "$IMAGE_BASE/$IMAGE_NAME:${IMAGE_TAG:0:8}"
+          status=$?
+          test -s "trivy-report-$IMAGE_NAME.json" || printf '{"error":"Trivy no generó el reporte"}\n' > "trivy-report-$IMAGE_NAME.json"
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-${{ matrix.image }}-${{ github.run_id }}
+          path: trivy-report-${{ matrix.image }}.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  stage_security:
+    name: security / etapa completa
+    if: always()
+    needs:
+      - stage_test
+      - stage_build
+      - security_compose
+      - security_dockerfiles
+      - security_semgrep
+      - security_yaml
+      - security_actionlint
+      - security_gitleaks
+      - security_trivy_local
+      - security_trivy_ghcr
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar controles de seguridad
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref }}
+          TEST_RESULT: ${{ needs.stage_test.result }}
+          BUILD_RESULT: ${{ needs.stage_build.result }}
+          COMPOSE_RESULT: ${{ needs.security_compose.result }}
+          DOCKERFILES_RESULT: ${{ needs.security_dockerfiles.result }}
+          SEMGREP_RESULT: ${{ needs.security_semgrep.result }}
+          YAML_RESULT: ${{ needs.security_yaml.result }}
+          ACTIONLINT_RESULT: ${{ needs.security_actionlint.result }}
+          GITLEAKS_RESULT: ${{ needs.security_gitleaks.result }}
+          TRIVY_LOCAL_RESULT: ${{ needs.security_trivy_local.result }}
+          TRIVY_GHCR_RESULT: ${{ needs.security_trivy_ghcr.result }}
+        run: |
+          set -eu
+          test "$TEST_RESULT" = success
+          test "$BUILD_RESULT" = success
+          for result in "$COMPOSE_RESULT" "$DOCKERFILES_RESULT" "$SEMGREP_RESULT" \
+            "$YAML_RESULT" "$ACTIONLINT_RESULT" "$GITLEAKS_RESULT"; do
+            test "$result" = success || { echo "Falló un control de seguridad: $result"; exit 1; }
+          done
+          if [ "$EVENT_NAME" = push ] && [ "$REF_NAME" = refs/heads/main ]; then
+            test "$TRIVY_GHCR_RESULT" = success || { echo "Falló Trivy sobre GHCR: $TRIVY_GHCR_RESULT"; exit 1; }
+            test "$TRIVY_LOCAL_RESULT" = skipped || { echo "Resultado inesperado de Trivy local: $TRIVY_LOCAL_RESULT"; exit 1; }
+          else
+            test "$TRIVY_LOCAL_RESULT" = success || { echo "Falló Trivy local: $TRIVY_LOCAL_RESULT"; exit 1; }
+            test "$TRIVY_GHCR_RESULT" = skipped || { echo "Resultado inesperado de Trivy GHCR: $TRIVY_GHCR_RESULT"; exit 1; }
+          fi
+
+  # Stage 4: solo se ejecuta tras push directo/merge a main y el éxito de los tres gates.
+  deploy:
+    name: deploy / Terraform y EC2
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.stage_security.result == 'success'
+    needs:
+      - stage_test
+      - stage_build
+      - stage_security
+    runs-on: ubuntu-latest
+    environment: aws-sandbox
+    concurrency:
+      group: aws-sandbox
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+      AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION }}
+      AWS_EC2_AMI_ID: ${{ vars.AWS_EC2_AMI_ID || 'ami-0c230065b91270bc6' }}
+      TF_STATE_USERNAME: ${{ secrets.TF_STATE_USERNAME }}
+      TF_STATE_PASSWORD: ${{ secrets.TF_STATE_PASSWORD }}
+      DB_USER: ${{ secrets.DB_USER }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+      DASHBOARD_USER: ${{ secrets.DASHBOARD_USER }}
+      DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+      IPAPI_TOKEN: ${{ secrets.IPAPI_TOKEN }}
+      GITLAB_API_V4_URL: ${{ vars.GITLAB_API_V4_URL }}
+      GITLAB_PROJECT_ID: ${{ vars.GITLAB_PROJECT_ID }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.17.1
+          terraform_wrapper: false
+      - name: Instalar utilidades de despliegue
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq apache2-utils openssh-client openssl python3
+      - name: Validar variables obligatorias
+        run: |
+          set -eu
+          for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
+            AWS_DEFAULT_REGION TF_STATE_USERNAME TF_STATE_PASSWORD GITLAB_API_V4_URL \
+            GITLAB_PROJECT_ID DB_USER DB_PASSWORD MYSQL_ROOT_PASSWORD \
+            DASHBOARD_USER DASHBOARD_PASSWORD; do
+            eval "value=\${$name:-}"
+            test -n "$value" || { echo "Falta configurar $name en GitHub"; exit 1; }
+          done
+      - name: Determinar y validar egress IPv4 del runner
+        id: egress
+        run: |
+          set -eu
+          ip="$(curl -4fsS https://api.ipify.org)"
+          python3 - "$ip" <<'PY'
+          import ipaddress
+          import sys
+
+          try:
+              address = ipaddress.ip_address(sys.argv[1].strip())
+          except ValueError:
+              raise SystemExit("No se pudo determinar una IPv4 válida para el runner")
+          if address.version != 4:
+              raise SystemExit("El egress del runner debe ser IPv4")
+          print(f"{address}/32")
+          PY
+          printf 'cidr=%s/32\n' "$ip" >> "$GITHUB_OUTPUT"
+      - name: Aprovisionar y desplegar conservando el state HTTP de GitLab
+        env:
+          RUNNER_SSH_CIDR: ${{ steps.egress.outputs.cidr }}
+          GHCR_IMAGE_BASE: ghcr.io/${{ github.repository }}
+          GHCR_USERNAME: ${{ github.actor }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+
+          for name in GHCR_IMAGE_BASE GHCR_USERNAME RUNNER_SSH_CIDR; do
+            eval "value=\${$name:-}"
+            test -n "$value" || { echo "Falta configurar $name"; exit 1; }
+          done
+
+          TF_HTTP_ADDRESS="${GITLAB_API_V4_URL%/}/projects/${GITLAB_PROJECT_ID}/terraform/state/fintech-nova-sandbox"
+          export TF_USERNAME="$TF_STATE_USERNAME"
+          export TF_PASSWORD="$TF_STATE_PASSWORD"
+          export TF_HTTP_USERNAME="$TF_STATE_USERNAME"
+          export TF_HTTP_PASSWORD="$TF_STATE_PASSWORD"
+          export TF_HTTP_ADDRESS
+          export TF_HTTP_LOCK_ADDRESS="$TF_HTTP_ADDRESS/lock"
+          export TF_HTTP_UNLOCK_ADDRESS="$TF_HTTP_ADDRESS/lock"
+          export TF_HTTP_LOCK_METHOD=POST
+          export TF_HTTP_UNLOCK_METHOD=DELETE
+          export TF_HTTP_RETRY_WAIT_MIN=5
+
+          TF_TMP_DIR="$(mktemp -d)"
+          TF_SSH_KEY="$TF_TMP_DIR/id_ed25519"
+          export TF_DATA_DIR="$TF_TMP_DIR/terraform-data"
+          export TMPDIR="$TF_TMP_DIR"
+          mkdir -p "$TF_DATA_DIR"
+          cleanup() { rm -rf -- "$TF_TMP_DIR"; }
+          trap cleanup EXIT
+          trap 'exit 1' HUP INT TERM
+
+          ssh-keygen -q -t ed25519 -N '' -C "github-${GITHUB_REPOSITORY_ID}-${GITHUB_RUN_ID}" -f "$TF_SSH_KEY"
+          export TF_VAR_aws_region="$AWS_DEFAULT_REGION"
+          export TF_VAR_ami_id="$AWS_EC2_AMI_ID"
+          export TF_VAR_runner_ssh_cidr="$RUNNER_SSH_CIDR"
+          export TF_VAR_resource_suffix="$GITHUB_RUN_ID"
+          export TF_VAR_ssh_public_key="$(cat "$TF_SSH_KEY.pub")"
+
+          terraform -chdir=infra/aws init -input=false -lock-timeout=5m
+          terraform -chdir=infra/aws validate
+          terraform -chdir=infra/aws plan -input=false -lock-timeout=5m -out="$TF_TMP_DIR/deploy.tfplan"
+          terraform -chdir=infra/aws apply -input=false -auto-approve -lock-timeout=5m "$TF_TMP_DIR/deploy.tfplan"
+
+          export AWS_EC2_HOST="$(terraform -chdir=infra/aws output -raw public_ip)"
+          export AWS_EC2_USER="$(terraform -chdir=infra/aws output -raw ssh_user)"
+          export DEPLOY_SSH_KEY="$TF_SSH_KEY"
+          export CI_REGISTRY=ghcr.io
+          export CI_REGISTRY_USER="$GHCR_USERNAME"
+          export CI_REGISTRY_PASSWORD="$GH_TOKEN"
+          export CI_PROJECT_PATH="$(printf '%s' "$GHCR_IMAGE_BASE" | sed 's#^ghcr.io/##' | tr '[:upper:]' '[:lower:]')"
+          export IMAGE_TAG="${GITHUB_SHA:0:8}"
+          bash scripts/deploy-ci.sh
